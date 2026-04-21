@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "seeliscape",
+    "slug": "seeliscape",
+    "scheme": "seeliscape",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.seeliscape.app"
+    },
+    "android": {
+      "package": "com.seeliscape.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      "@rnmapbox/maps"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "96366038-c195-4676-a640-43daa6fb12f5"
+      }
+    }
+  }
+}
