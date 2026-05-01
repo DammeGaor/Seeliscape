@@ -40,14 +40,7 @@ export function AuthLayout({ title, subtitle, showBack, children }: AuthLayoutPr
             </TouchableOpacity>
           ) : <View style={styles.backBtn} />}
 
-          {/* Wordmark */}
-          <Text style={styles.wordmark}>seeliscape</Text>
           <View style={styles.backBtn} />
-        </View>
-
-        {/* Decorative arc */}
-        <View style={styles.arcWrapper}>
-          <View style={styles.arc} />
         </View>
 
         {/* Title block */}
@@ -80,22 +73,7 @@ const styles = StyleSheet.create({
   },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   backArrow: { fontSize: 22, color: Colors.textSecondary },
-  wordmark: {
-    fontFamily: Typography.displayFont,
-    fontSize: 20,
-    color: Colors.primary,
-    letterSpacing: -0.5,
-  },
-
-  // Decorative swoosh arc
-  arcWrapper: { alignItems: 'center', marginTop: Spacing.sm },
-  arc: {
-    width: 220,
-    height: 6,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.accent,
-    opacity: 0.35,
-  },
+  // Decorative swoosh arc (removed)
 
   titleBlock: {
     paddingHorizontal: Spacing.lg,

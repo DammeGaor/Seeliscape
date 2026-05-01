@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, Platform, StatusBar, TouchableOpacity } from 'react-native'
 import { router } from 'expo-router'
 import { AuthLayout } from '@/components/auth/AuthLayout'
 import { AuthInput } from '@/components/auth/AuthInput'
@@ -30,7 +30,9 @@ export default function ForgotPasswordScreen() {
     return (
       <AuthLayout title={'Check your\ninbox.'} showBack>
         <View style={styles.successBox}>
-          <Text style={styles.successIcon}>✉️</Text>
+          <View style={styles.successIconWrap}>
+            <Text style={styles.successIcon}>✉️</Text>
+          </View>
           <Text style={styles.successTitle}>Email sent!</Text>
           <Text style={styles.successBody}>
             We sent a password reset link to{'\n'}
@@ -52,7 +54,11 @@ export default function ForgotPasswordScreen() {
       subtitle="No worries. Enter your email and we'll send a reset link."
       showBack
     >
-      {generalError && <Text style={styles.generalError}>{generalError}</Text>}
+      {generalError && (
+        <View style={styles.errorBox}>
+          <Text style={styles.generalError}>⚠ {generalError}</Text>
+        </View>
+      )}
 
       <AuthInput
         label="Email"
@@ -69,25 +75,41 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
+  errorBox: {
+    backgroundColor: Colors.errorLight,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: '#F5C6C1',
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
   generalError: {
     fontFamily: Typography.bodyFont,
     fontSize: 13,
     color: Colors.error,
-    backgroundColor: Colors.errorLight,
-    padding: Spacing.md,
-    borderRadius: 10,
-    marginBottom: Spacing.md,
   },
   successBox: {
     alignItems: 'center',
     paddingVertical: Spacing.xl,
+    gap: Spacing.sm,
   },
-  successIcon: { fontSize: 48, marginBottom: Spacing.md },
+  successIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.primary + '12',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '25',
+  },
+  successIcon: { fontSize: 32 },
   successTitle: {
     fontFamily: Typography.displayFont,
     fontSize: 26,
     color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
+    letterSpacing: -0.5,
   },
   successBody: {
     fontFamily: Typography.bodyFont,

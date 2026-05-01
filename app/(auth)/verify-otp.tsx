@@ -46,14 +46,8 @@ export default function VerifyOtpScreen() {
   }
 
   async function handleVerify() {
-    if (token.length < OTP_LENGTH) {
-      setError('Enter all 6 digits.')
-      return
-    }
-    if (!pendingEmail) {
-      setError('Session expired. Please register again.')
-      return
-    }
+    if (token.length < OTP_LENGTH) { setError('Enter all 6 digits.'); return }
+    if (!pendingEmail) { setError('Session expired. Please register again.'); return }
     setError(null)
     setLoading(true)
     const { error: err } = await verifyOtp(pendingEmail, token)
@@ -66,7 +60,6 @@ export default function VerifyOtpScreen() {
   async function handleResend() {
     if (!pendingEmail || resendCooldown > 0) return
     await resendOtp(pendingEmail)
-    // 60 second cooldown
     setResendCooldown(60)
     const interval = setInterval(() => {
       setResendCooldown((c) => {
@@ -100,19 +93,26 @@ export default function VerifyOtpScreen() {
         ))}
       </View>
 
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {error && (
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorText}>⚠ {error}</Text>
+        </View>
+      )}
 
       <AuthButton label="Verify email" loading={loading} onPress={handleVerify} />
 
-      {/* Resend */}
       <TouchableOpacity
         onPress={handleResend}
         disabled={resendCooldown > 0}
         style={styles.resendBtn}
       >
-        <Text style={[styles.resendText, resendCooldown > 0 && styles.resendMuted]}>
-          {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Didn't get a code? Resend"}
-        </Text>
+        {resendCooldown > 0 ? (
+          <View style={styles.cooldownPill}>
+            <Text style={styles.cooldownText}>Resend in {resendCooldown}s</Text>
+          </View>
+        ) : (
+          <Text style={styles.resendText}>Didn't get a code? <Text style={styles.resendLink}>Resend</Text></Text>
+        )}
       </TouchableOpacity>
     </AuthLayout>
   )
@@ -123,34 +123,58 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: Spacing.lg,
+    gap: 8,
   },
   digitBox: {
-    width: 46,
-    height: 58,
-    borderRadius: Radius.md,
+    flex: 1,
+    height: 60,
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: Colors.border,
-    backgroundColor: Colors.bgMuted,
+    backgroundColor: Colors.bg,
     fontSize: 24,
     fontFamily: Typography.bodySemiBold,
     color: Colors.textPrimary,
   },
   digitFilled: {
     borderColor: Colors.primary,
-    backgroundColor: Colors.bgCard,
+    backgroundColor: Colors.primary + '08',
+  },
+  errorWrap: {
+    backgroundColor: Colors.errorLight,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: '#F5C6C1',
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   errorText: {
     fontFamily: Typography.bodyFont,
     fontSize: 13,
     color: Colors.error,
     textAlign: 'center',
-    marginBottom: Spacing.md,
   },
   resendBtn: { alignItems: 'center', marginTop: Spacing.md },
   resendText: {
-    fontFamily: Typography.bodyMedium,
+    fontFamily: Typography.bodyFont,
     fontSize: 14,
-    color: Colors.accent,
+    color: Colors.textMuted,
   },
-  resendMuted: { color: Colors.textMuted },
+  resendLink: {
+    fontFamily: Typography.bodySemiBold,
+    color: Colors.primary,
+  },
+  cooldownPill: {
+    backgroundColor: Colors.bg,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+  },
+  cooldownText: {
+    fontFamily: Typography.bodyMedium,
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
 })

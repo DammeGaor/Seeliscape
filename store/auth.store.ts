@@ -9,14 +9,37 @@ interface AuthState {
   session: Session | null
   user: User | null
   loading: boolean
-  pendingEmail: string | null          // email awaiting OTP verification
+  role: 'tourist' | 'admin' | null
+  isAdmin: boolean
+  pendingEmail: string | null
 
-  // Actions
   setSession: (session: Session | null) => void
   setPendingEmail: (email: string | null) => void
   setLoading: (loading: boolean) => void
   initialize: () => Promise<void>
 }
+
+// ---------------------------------------------------------------------------
+// Fetch role from profiles table
+// ---------------------------------------------------------------------------
+async function fetchRole(userId: string): Promise<'tourist' | 'admin'> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .single()
+
+  console.log('[fetchRole] userId:', userId, '| data:', data, '| error:', error?.message)
+
+  if (error || !data) return 'tourist'
+  return data.role === 'admin' ? 'admin' : 'tourist'
+}
+
+// ---------------------------------------------------------------------------
+// Track whether the auth listener has been registered — prevents duplicates
+// when initialize() is called more than once (hot reload, strict mode, etc.)
+// ---------------------------------------------------------------------------
+let listenerRegistered = false
 
 // ---------------------------------------------------------------------------
 // Store
@@ -25,6 +48,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   session: null,
   user: null,
   loading: true,
+  role: null,
+  isAdmin: false,
   pendingEmail: null,
 
   setSession: (session) =>
@@ -36,13 +61,45 @@ export const useAuthStore = create<AuthState>((set) => ({
   setLoading: (loading) =>
     set({ loading }),
 
-  // Call once at app startup to restore session and subscribe to auth changes
   initialize: async () => {
+    // ── 1. Restore existing session on app start ──────────────────────────
     const { data } = await supabase.auth.getSession()
-    set({ session: data.session, user: data.session?.user ?? null, loading: false })
+    const session  = data.session
+    const userId   = session?.user?.id
 
-    supabase.auth.onAuthStateChange((_event, session) => {
-      set({ session, user: session?.user ?? null })
+    let role: 'tourist' | 'admin' = 'tourist'
+    if (userId) role = await fetchRole(userId)
+
+    console.log('[auth] initialize — role:', role, '| isAdmin:', role === 'admin')
+
+    set({
+      session,
+      user:    session?.user ?? null,
+      loading: false,
+      role,
+      isAdmin: role === 'admin',
+    })
+
+    // ── 2. Subscribe to future auth changes (sign in / sign out / refresh) ─
+    // Guard prevents duplicate listeners if initialize() is called again.
+    if (listenerRegistered) return
+    listenerRegistered = true
+
+    supabase.auth.onAuthStateChange(async (_event, session) => {
+      const userId = session?.user?.id
+
+      let role: 'tourist' | 'admin' = 'tourist'
+      if (userId) role = await fetchRole(userId)
+
+      console.log('[auth] onAuthStateChange — event:', _event, '| role:', role)
+
+      set({
+        session,
+        user:    session?.user ?? null,
+        loading: false,
+        role,
+        isAdmin: role === 'admin',
+      })
     })
   },
 }))

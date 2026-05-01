@@ -1,6 +1,15 @@
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+export interface SixAScores {
+  attraction:        number
+  accessibility:     number
+  amenities:         number
+  availablePackages: number
+  activities:        number
+  ancillaryServices: number
+}
+
 export interface TourismSite {
   id: string
   name: string
@@ -12,6 +21,9 @@ export interface TourismSite {
   imageUrl?: string
   barangay: string
   municipality: string
+  sixAScores?: SixAScores
+  avgReviewScore?: number | null
+  reviewCount?: number | null
 }
 
 export type SiteCategory =
@@ -22,6 +34,7 @@ export type SiteCategory =
   | 'park'
   | 'waterfall'
   | 'island'
+  | 'default'
 
 // Category display config
 export const CATEGORY_CONFIG: Record<SiteCategory, { emoji: string; color: string }> = {
@@ -32,101 +45,8 @@ export const CATEGORY_CONFIG: Record<SiteCategory, { emoji: string; color: strin
   park:     { emoji: '🌿', color: '#1A7A4A' },
   waterfall:{ emoji: '💧', color: '#1A8FA0' },
   island:   { emoji: '🏝️', color: '#E07A30' },
+  default:  { emoji: '📍', color: '#7F8C8D' },
 }
-
-// ---------------------------------------------------------------------------
-// Seed data — real Albay tourism sites with real coordinates
-// ---------------------------------------------------------------------------
-export const ALBAY_SITES: TourismSite[] = [
-  {
-    id: 'mayon-volcano',
-    name: 'Mayon Volcano',
-    category: 'volcano',
-    shortDescription: 'The world\'s most perfect cone',
-    description: 'Mayon Volcano is an active stratovolcano in the province of Albay. Renowned for its perfect conical shape, it is the most active volcano in the Philippines and a UNESCO-listed natural wonder.',
-    coordinates: { latitude: 13.2575, longitude: 123.6857 },
-    unlockRadiusMeters: 5000,
-    barangay: 'Buyuan',
-    municipality: 'Legazpi City',
-  },
-  {
-    id: 'cagsawa-ruins',
-    name: 'Cagsawa Ruins',
-    category: 'ruins',
-    shortDescription: 'Church ruins framing Mayon',
-    description: 'The Cagsawa Ruins are the remnants of an 18th-century Franciscan church buried by the 1814 eruption of Mayon Volcano. The iconic bell tower frames Mayon in the background.',
-    coordinates: { latitude: 13.1577, longitude: 123.6844 },
-    unlockRadiusMeters: 300,
-    barangay: 'Busay',
-    municipality: 'Daraga',
-  },
-  {
-    id: 'sumlang-lake',
-    name: 'Sumlang Lake',
-    category: 'park',
-    shortDescription: 'Mirror lake reflecting Mayon',
-    description: 'Sumlang Lake is a serene crater lake offering stunning reflections of Mayon Volcano. Visitors can enjoy bamboo raft rides, kayaking, and lakeside dining with panoramic views.',
-    coordinates: { latitude: 13.2008, longitude: 123.7272 },
-    unlockRadiusMeters: 400,
-    barangay: 'Sumlang',
-    municipality: 'Camalig',
-  },
-  {
-    id: 'misibis-bay',
-    name: 'Misibis Bay Resort',
-    category: 'beach',
-    shortDescription: 'Luxury island escape in Cagraray',
-    description: 'Misibis Bay is an award-winning luxury resort set on Cagraray Island with pristine beaches, crystal-clear waters, and views of both Mayon Volcano and the Pacific Ocean.',
-    coordinates: { latitude: 13.4729, longitude: 124.0264 },
-    unlockRadiusMeters: 500,
-    barangay: 'Cagraray',
-    municipality: 'Bacacay',
-  },
-  {
-    id: 'hoyop-hoyopan-cave',
-    name: 'Hoyop-Hoyopan Cave',
-    category: 'park',
-    shortDescription: 'Ancient cave with pre-colonial artifacts',
-    description: 'Hoyop-Hoyopan, meaning "blowing cave," is a natural limestone cave system in Camalig containing ancient pottery and pre-colonial artifacts dating back 3,500 years.',
-    coordinates: { latitude: 13.2347, longitude: 123.6611 },
-    unlockRadiusMeters: 200,
-    barangay: 'Cotmon',
-    municipality: 'Camalig',
-  },
-  {
-    id: 'lignon-hill',
-    name: 'Lignon Hill Nature Park',
-    category: 'park',
-    shortDescription: 'Panoramic views of Legazpi & Mayon',
-    description: 'Lignon Hill is a 207-meter volcanic hill in Legazpi City offering 360-degree views of Mayon Volcano, Legazpi Bay, and the Albay Gulf. Features zip lines, hanging bridges, and trekking trails.',
-    coordinates: { latitude: 13.1383, longitude: 123.7344 },
-    unlockRadiusMeters: 300,
-    barangay: 'Bigaa',
-    municipality: 'Legazpi City',
-  },
-  {
-    id: 'santo-domingo-beach',
-    name: 'Santo Domingo Black Sand Beach',
-    category: 'beach',
-    shortDescription: 'Volcanic black sand with Mayon views',
-    description: 'Santo Domingo\'s unique black sand beaches are formed from volcanic deposits from Mayon Volcano. The dark shoreline offers dramatic scenery with Mayon rising in the background.',
-    coordinates: { latitude: 13.2683, longitude: 123.5783 },
-    unlockRadiusMeters: 400,
-    barangay: 'Salvacion',
-    municipality: 'Santo Domingo',
-  },
-  {
-    id: 'vera-falls',
-    name: 'Vera Falls',
-    category: 'waterfall',
-    shortDescription: 'Hidden jungle waterfall in Ligao',
-    description: 'Vera Falls is a multi-tiered waterfall tucked inside a lush jungle in Ligao City. The trek involves river crossings and bamboo bridges, rewarding visitors with a 20-meter cascade.',
-    coordinates: { latitude: 13.2156, longitude: 123.5289 },
-    unlockRadiusMeters: 200,
-    barangay: 'Vera',
-    municipality: 'Ligao City',
-  },
-]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,11 +70,12 @@ export function getDistanceMeters(
 
 // Returns sites within given radius, sorted by distance
 export function getNearbySites(
+  sites: TourismSite[],
   userLat: number,
   userLon: number,
   radiusMeters = 10000,
 ): Array<TourismSite & { distanceMeters: number }> {
-  return ALBAY_SITES
+  return sites
     .map((site) => ({
       ...site,
       distanceMeters: getDistanceMeters(

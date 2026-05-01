@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "seeliscape",
+    "name": "Seeliscape",
     "slug": "seeliscape",
     "scheme": "seeliscape",
     "version": "1.0.0",
@@ -33,7 +33,8 @@
       "expo-router",
       "expo-secure-store",
       "expo-font",
-      "@rnmapbox/maps"
+      "@rnmapbox/maps",
+      "@reactvision/react-viro"
     ],
     "extra": {
       "router": {},
