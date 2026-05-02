@@ -58,7 +58,19 @@ interface MapState {
 const secureStoreAdapter = createJSONStorage(() => ({
   getItem: async (name: string) => {
     const value = await SecureStore.getItemAsync(name)
-    return value ?? null
+    if (!value) return null
+
+    // Recompose the split unlockedSiteIds back into the main state object
+    const parsed = JSON.parse(value)
+    const unlockedRaw = await SecureStore.getItemAsync(`${name}_unlocked`)
+    const unlockedIds = unlockedRaw ? JSON.parse(unlockedRaw) : []
+
+    parsed.state = {
+      ...parsed.state,
+      unlockedSiteIds: { __type: 'Set', values: unlockedIds },
+    }
+
+    return JSON.stringify(parsed)
   },
   setItem: async (name: string, value: string) => {
     // expo-secure-store has a ~2048 byte limit per key.

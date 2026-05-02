@@ -11,6 +11,8 @@ import {
   Keyboard,
   ActivityIndicator,
   Image,
+  Animated,
+  Easing,
 } from 'react-native'
 import MapboxGL from '@rnmapbox/maps'
 import type GeoJSON from 'geojson'
@@ -48,6 +50,300 @@ interface ActiveRoute {
   distanceMeters: number
   durationSeconds: number
   profile: RouteProfile
+}
+
+// ---------------------------------------------------------------------------
+// Pure-View icon primitives — no emoji, no icon library
+// ---------------------------------------------------------------------------
+
+// × close mark
+function IconClose({ size = 10, color = Colors.textMuted }: { size?: number; color?: string }) {
+  const t = size * 0.12
+  return (
+    <View style={{ width: size, height: size }}>
+      <View style={{
+        position: 'absolute', top: '50%', left: 0,
+        width: size, height: t, marginTop: -t / 2,
+        backgroundColor: color, borderRadius: t,
+        transform: [{ rotate: '45deg' }],
+      }} />
+      <View style={{
+        position: 'absolute', top: '50%', left: 0,
+        width: size, height: t, marginTop: -t / 2,
+        backgroundColor: color, borderRadius: t,
+        transform: [{ rotate: '-45deg' }],
+      }} />
+    </View>
+  )
+}
+
+// Magnifying glass search icon
+function IconSearch({ size = 16, color = Colors.textMuted }: { size?: number; color?: string }) {
+  const circleSize = size * 0.65
+  const handleLen  = size * 0.38
+  const t          = size * 0.13
+  return (
+    <View style={{ width: size, height: size }}>
+      <View style={{
+        width: circleSize, height: circleSize, borderRadius: circleSize / 2,
+        borderWidth: t, borderColor: color,
+        position: 'absolute', top: 0, left: 0,
+      }} />
+      <View style={{
+        width: t, height: handleLen, backgroundColor: color, borderRadius: t,
+        position: 'absolute',
+        top: circleSize - t * 0.5,
+        left: circleSize - t * 0.5,
+        transform: [{ rotate: '45deg' }],
+        transformOrigin: 'top center',
+      }} />
+    </View>
+  )
+}
+
+// Location crosshair / recenter
+function IconLocation({ size = 18, color = Colors.primary, active = false }:
+  { size?: number; color?: string; active?: boolean }) {
+  const t     = size * 0.1
+  const inner = size * 0.28
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Outer circle */}
+      <View style={{
+        width: size * 0.72, height: size * 0.72,
+        borderRadius: size * 0.36,
+        borderWidth: t, borderColor: color,
+        alignItems: 'center', justifyContent: 'center',
+        position: 'absolute',
+      }} />
+      {/* Inner dot */}
+      <View style={{
+        width: inner, height: inner, borderRadius: inner / 2,
+        backgroundColor: active ? color : 'transparent',
+        borderWidth: active ? 0 : t, borderColor: color,
+      }} />
+      {/* Cross hairs — horizontal */}
+      <View style={{ position: 'absolute', top: '50%', left: 0, width: size * 0.14, height: t, backgroundColor: color, marginTop: -t / 2 }} />
+      <View style={{ position: 'absolute', top: '50%', right: 0, width: size * 0.14, height: t, backgroundColor: color, marginTop: -t / 2 }} />
+      {/* Cross hairs — vertical */}
+      <View style={{ position: 'absolute', left: '50%', top: 0, height: size * 0.14, width: t, backgroundColor: color, marginLeft: -t / 2 }} />
+      <View style={{ position: 'absolute', left: '50%', bottom: 0, height: size * 0.14, width: t, backgroundColor: color, marginLeft: -t / 2 }} />
+    </View>
+  )
+}
+
+// Info — circle with "i"
+function IconInfo({ size = 18, color = Colors.primary }: { size?: number; color?: string }) {
+  return (
+    <View style={{
+      width: size, height: size, borderRadius: size / 2,
+      borderWidth: size * 0.1, borderColor: color,
+      alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Text style={{
+        fontFamily: Typography.bodySemiBold,
+        fontSize: size * 0.52,
+        color,
+        lineHeight: size * 0.62,
+        letterSpacing: 0,
+      }}>i</Text>
+    </View>
+  )
+}
+
+// Settings — three horizontal lines with dots (sliders icon)
+function IconSettings({ size = 18, color = Colors.textSecondary }: { size?: number; color?: string }) {
+  const t   = Math.max(1.5, size * 0.1)
+  const gap = size * 0.28
+  const dotR = t * 1.4
+  return (
+    <View style={{ width: size, height: size, justifyContent: 'center', gap: gap * 0.3 }}>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', height: t + dotR * 2 }}>
+          {/* Left segment */}
+          <View style={{
+            flex: i === 0 ? 0.4 : i === 1 ? 0.6 : 0.3,
+            height: t, backgroundColor: color, borderRadius: t,
+          }} />
+          {/* Dot handle */}
+          <View style={{
+            width: dotR * 2, height: dotR * 2, borderRadius: dotR,
+            backgroundColor: color, marginHorizontal: 2,
+          }} />
+          {/* Right segment */}
+          <View style={{ flex: 1, height: t, backgroundColor: color, borderRadius: t }} />
+        </View>
+      ))}
+    </View>
+  )
+}
+
+// Star / sparkle for recommend button
+function IconRecommend({ size = 16, color = Colors.primary }: { size?: number; color?: string }) {
+  const t = Math.max(1.5, size * 0.11)
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Vertical bar */}
+      <View style={{ position: 'absolute', width: t, height: size, backgroundColor: color, borderRadius: t }} />
+      {/* Horizontal bar */}
+      <View style={{ position: 'absolute', height: t, width: size, backgroundColor: color, borderRadius: t }} />
+      {/* Diagonal 1 */}
+      <View style={{
+        position: 'absolute', width: t, height: size * 0.65,
+        backgroundColor: color, borderRadius: t,
+        transform: [{ rotate: '45deg' }],
+      }} />
+      {/* Diagonal 2 */}
+      <View style={{
+        position: 'absolute', width: t, height: size * 0.65,
+        backgroundColor: color, borderRadius: t,
+        transform: [{ rotate: '-45deg' }],
+      }} />
+    </View>
+  )
+}
+
+// Lock icon — body + shackle
+function IconLock({ size = 14, color = '#fff' }: { size?: number; color?: string }) {
+  const t     = Math.max(1.5, size * 0.14)
+  const body  = size * 0.55
+  const shack = size * 0.44
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'flex-end' }}>
+      {/* Shackle */}
+      <View style={{
+        width: shack, height: shack * 0.75,
+        borderLeftWidth: t, borderRightWidth: t, borderTopWidth: t,
+        borderColor: color, borderTopLeftRadius: shack / 2, borderTopRightRadius: shack / 2,
+        marginBottom: -t * 0.5,
+      }} />
+      {/* Body */}
+      <View style={{
+        width: body, height: body * 0.72,
+        backgroundColor: color, borderRadius: 3,
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        <View style={{
+          width: t * 1.5, height: body * 0.35,
+          backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 2,
+        }} />
+      </View>
+    </View>
+  )
+}
+
+// Category dot — colored circle used in search results and markers
+function CategoryDot({ color }: { color: string }) {
+  return (
+    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+  )
+}
+
+// History / trail icon — clock with arrow
+function IconHistory({ size = 18, color = Colors.textSecondary }: { size?: number; color?: string }) {
+  const t = Math.max(1.5, size * 0.1)
+  const r = size * 0.42
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Clock face */}
+      <View style={{
+        width: r * 2, height: r * 2, borderRadius: r,
+        borderWidth: t, borderColor: color,
+        alignItems: 'center', justifyContent: 'center',
+        position: 'absolute',
+      }} />
+      {/* Hour hand */}
+      <View style={{
+        position: 'absolute',
+        width: t, height: r * 0.52,
+        backgroundColor: color, borderRadius: t,
+        bottom: '50%', left: '50%',
+        marginLeft: -t / 2,
+        transformOrigin: 'bottom center',
+        transform: [{ rotate: '-30deg' }],
+      }} />
+      {/* Minute hand */}
+      <View style={{
+        position: 'absolute',
+        width: t, height: r * 0.72,
+        backgroundColor: color, borderRadius: t,
+        bottom: '50%', left: '50%',
+        marginLeft: -t / 2,
+        transformOrigin: 'bottom center',
+        transform: [{ rotate: '60deg' }],
+      }} />
+      {/* Counter-clockwise dot accent (top-left) */}
+      <View style={{
+        position: 'absolute', top: -t * 0.5, left: size * 0.08,
+        width: t * 2, height: t * 2, borderRadius: t,
+        backgroundColor: color,
+      }} />
+    </View>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Pulsing user location marker (Pokémon GO style)
+// ---------------------------------------------------------------------------
+function PulsingUserMarker({ coordinate }: { coordinate: [number, number] }) {
+  const pulse1 = useRef(new Animated.Value(0)).current
+  const pulse2 = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    const anim1 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse1, { toValue: 1, duration: 1600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse1, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ])
+    )
+    const anim2 = Animated.loop(
+      Animated.sequence([
+        Animated.delay(800),
+        Animated.timing(pulse2, { toValue: 1, duration: 1600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse2, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ])
+    )
+    anim1.start()
+    anim2.start()
+    return () => { anim1.stop(); anim2.stop() }
+  }, [])
+
+  const pulseStyle = (anim: Animated.Value) => ({
+    position: 'absolute' as const,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary,
+    opacity: anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.55, 0.3, 0] }),
+    transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.2] }) }],
+  })
+
+  return (
+    <MapboxGL.MarkerView coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+      <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View style={pulseStyle(pulse1)} />
+        <Animated.View style={pulseStyle(pulse2)} />
+        {/* Accuracy halo */}
+        <View style={{
+          width: 28, height: 28, borderRadius: 14,
+          backgroundColor: Colors.primary + '22',
+          borderWidth: 1.5, borderColor: Colors.primary + '55',
+          position: 'absolute',
+        }} />
+        {/* Core dot */}
+        <View style={{
+          width: 14, height: 14, borderRadius: 7,
+          backgroundColor: Colors.primary,
+          borderWidth: 2.5, borderColor: '#ffffff',
+          shadowColor: Colors.primary,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.8,
+          shadowRadius: 6,
+          elevation: 8,
+        }} />
+      </View>
+    </MapboxGL.MarkerView>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -89,12 +385,15 @@ function SiteMarker({
               />
               {!isUnlocked && (
                 <View style={styles.markerLockOverlay}>
-                  <Text style={styles.markerLockIcon}>🔒</Text>
+                  <IconLock size={13} color="#fff" />
                 </View>
               )}
             </>
           ) : (
-            <Text style={styles.markerEmoji}>{config.emoji}</Text>
+            // Category initial letter — clean typographic marker
+            <Text style={[styles.markerLetter, !isUnlocked && { opacity: 0.5 }]}>
+              {site.category.charAt(0).toUpperCase()}
+            </Text>
           )}
         </View>
         <View style={[styles.markerTail, isSelected && styles.markerTailSelected]} />
@@ -108,9 +407,17 @@ function SiteMarker({
 // ---------------------------------------------------------------------------
 function SearchResult({ site, onPress }: { site: TourismSite; onPress: () => void }) {
   const config = CATEGORY_CONFIG[site.category]
+  // Derive a category color from tint or fall back to primary
+  const dotColor = (config as any).color ?? Colors.primary
+
   return (
     <TouchableOpacity style={styles.searchResult} onPress={onPress} activeOpacity={0.7}>
-      <Text style={styles.searchResultEmoji}>{config.emoji}</Text>
+      {/* Category initial in a small badge */}
+      <View style={[styles.searchResultBadge, { backgroundColor: dotColor + '18', borderColor: dotColor + '40' }]}>
+        <Text style={[styles.searchResultBadgeTxt, { color: dotColor }]}>
+          {site.category.charAt(0).toUpperCase()}
+        </Text>
+      </View>
       <View style={styles.searchResultText}>
         <Text style={styles.searchResultName}>{site.name}</Text>
         <Text style={styles.searchResultSub}>{site.municipality}</Text>
@@ -132,9 +439,9 @@ function RouteInfoPill({
   onChangeProfile: (p: RouteProfile) => void
 }) {
   const profiles: { key: RouteProfile; label: string }[] = [
-    { key: 'walking', label: '🚶' },
-    { key: 'driving', label: '🚗' },
-    { key: 'cycling', label: '🚴' },
+    { key: 'walking', label: 'Walk' },
+    { key: 'driving', label: 'Drive' },
+    { key: 'cycling', label: 'Cycle' },
   ]
 
   return (
@@ -146,22 +453,27 @@ function RouteInfoPill({
         <Text style={styles.routeDuration}>{formatDuration(route.durationSeconds)}</Text>
       </View>
 
-      {/* Profile switcher */}
+      {/* Profile switcher — text labels */}
       <View style={styles.profileRow}>
-        {profiles.map((p) => (
-          <TouchableOpacity
-            key={p.key}
-            style={[styles.profileBtn, route.profile === p.key && styles.profileBtnActive]}
-            onPress={() => onChangeProfile(p.key)}
-          >
-            <Text style={styles.profileEmoji}>{p.label}</Text>
-          </TouchableOpacity>
-        ))}
+        {profiles.map(({ key, label }) => {
+          const isActive = route.profile === key
+          return (
+            <TouchableOpacity
+              key={key}
+              style={[styles.profileBtn, isActive && styles.profileBtnActive]}
+              onPress={() => onChangeProfile(key)}
+            >
+              <Text style={[styles.profileBtnTxt, isActive && styles.profileBtnTxtActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          )
+        })}
       </View>
 
       {/* Clear button */}
       <TouchableOpacity style={styles.routeClearBtn} onPress={onClear}>
-        <Text style={styles.routeClearTxt}>✕</Text>
+        <IconClose size={10} color={Colors.textMuted} />
       </TouchableOpacity>
     </View>
   )
@@ -199,6 +511,7 @@ export default function MapScreen() {
   const [infoVisible, setInfoVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
+  const [questExpanded, setQuestExpanded] = useState(true)
 
   // Supabase destinations
   const [sites, setSites] = useState<TourismSite[]>([])
@@ -237,25 +550,23 @@ export default function MapScreen() {
     }
   }, [pendingDirectionsSiteId, sites])
 
-  // Pulse animation for route line using interval (rnmapbox doesn't support Animated.Value in LineLayer)
+  // Pulse animation for route line
   useEffect(() => {
     if (!activeRoute) {
       setPulsePhase(0)
       return
     }
-
     const start = Date.now()
     const interval = setInterval(() => {
       const elapsed = (Date.now() - start) % 1800
       const t = elapsed < 900 ? elapsed / 900 : (1800 - elapsed) / 900
       setPulsePhase(t)
-    }, 32) // ~30fps
-
+    }, 32)
     return () => clearInterval(interval)
   }, [activeRoute])
 
-  const pulseOpacity = 0.15 + pulsePhase * 0.4   // 0.15 → 0.55
-  const pulseWidth = 10 + pulsePhase * 8           // 10 → 18
+  const pulseOpacity = 0.15 + pulsePhase * 0.4
+  const pulseWidth   = 10  + pulsePhase * 8
 
   const searchResults = useMemo(() => {
     if (searchQuery.trim().length === 0) return []
@@ -288,7 +599,6 @@ export default function MapScreen() {
         accuracy: initial.coords.accuracy ?? undefined,
       })
       setLocationLoading(false)
-      // Fly to user once on first fix — after this the camera is user-controlled
       if (!cameraInitialized.current) {
         cameraInitialized.current = true
         cameraRef.current?.setCamera({
@@ -330,7 +640,7 @@ export default function MapScreen() {
   }
 
   // ---------------------------------------------------------------------------
-  // Directions — called from SiteSheet's "Get Directions" button
+  // Directions
   // ---------------------------------------------------------------------------
   async function handleGetDirections(site: TourismSite, profile: RouteProfile = 'walking') {
     if (!userLocation) {
@@ -341,12 +651,10 @@ export default function MapScreen() {
     activeRouteSite.current = site
     setRouteError(null)
 
-    // Clear cache when destination changes
     if (!routeCache.current[profile] || activeRouteSite.current?.id !== site.id) {
       routeCache.current = {}
     }
 
-    // Instant switch if already cached
     if (routeCache.current[profile]) {
       setActiveRoute(routeCache.current[profile]!)
       fitCameraToRoute(site)
@@ -354,7 +662,6 @@ export default function MapScreen() {
       return
     }
 
-    // First load: fetch all 3 profiles in parallel
     setRouteLoading(true)
     setActiveRoute(null)
 
@@ -374,7 +681,6 @@ export default function MapScreen() {
 
     setRouteLoading(false)
 
-    // Populate cache with all results
     allProfiles.forEach((p, i) => {
       if (results[i]) routeCache.current[p] = results[i]!
     })
@@ -405,7 +711,6 @@ export default function MapScreen() {
     )
   }
 
-  // Silently fills any missing profiles in the background
   async function prefetchMissingProfiles(site: TourismSite) {
     if (!userLocation) return
     const allProfiles: RouteProfile[] = ['walking', 'driving', 'cycling']
@@ -435,15 +740,11 @@ export default function MapScreen() {
   function handleChangeProfile(profile: RouteProfile) {
     const site = selectedSite ?? activeRouteSite.current
     if (!site) return
-
-    // Instant switch from cache
     if (routeCache.current[profile]) {
       setActiveRoute(routeCache.current[profile]!)
       fitCameraToRoute(site)
       return
     }
-
-    // Fallback: fetch if cache is missing this profile
     handleGetDirections(site, profile)
   }
 
@@ -480,7 +781,6 @@ export default function MapScreen() {
     Keyboard.dismiss()
   }
 
-  // GeoJSON source for the route line
   const routeGeoJSON: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
     features: activeRoute
@@ -506,14 +806,12 @@ export default function MapScreen() {
           Keyboard.dismiss()
         }}
         onCameraChanged={(state) => {
-          if (state.gestures?.isGestureActive) {
-            setFollowUserLocation(false)
-          }
+          if (state.gestures?.isGestureActive) setFollowUserLocation(false)
         }}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled
-        compassPosition={{ bottom: 100, right: Spacing.md }}
+        compassPosition={{ top: Platform.OS === 'android' ? 116 : 124, right: Spacing.md }}
       >
         <MapboxGL.Camera
           ref={cameraRef}
@@ -525,17 +823,16 @@ export default function MapScreen() {
           }}
         />
 
-        {/* User location puck */}
-        <MapboxGL.UserLocation
-          visible
-          showsUserHeadingIndicator
-          renderMode={MapboxGL.UserLocationRenderMode.Native}
-        />
+        {/* Custom pulsing user location marker */}
+        {userLocation && (
+          <PulsingUserMarker
+            coordinate={[userLocation.longitude, userLocation.latitude]}
+          />
+        )}
 
         {/* ── Route line ── */}
         {activeRoute && (
           <MapboxGL.ShapeSource id="route-source" shape={routeGeoJSON}>
-            {/* Outer pulse glow — animates width + opacity */}
             <MapboxGL.LineLayer
               id="route-pulse"
               style={{
@@ -547,7 +844,6 @@ export default function MapScreen() {
                 lineBlur: 4,
               }}
             />
-            {/* White casing for contrast */}
             <MapboxGL.LineLayer
               id="route-casing"
               style={{
@@ -557,7 +853,6 @@ export default function MapScreen() {
                 lineJoin: 'round',
               }}
             />
-            {/* Solid main route line */}
             <MapboxGL.LineLayer
               id="route-line"
               style={{
@@ -578,8 +873,8 @@ export default function MapScreen() {
             anchor={{ x: 0.5, y: 1 }}
           >
             <View style={styles.destinationPin}>
-              <Text style={styles.destinationPinEmoji}>
-                {CATEGORY_CONFIG[selectedSite.category].emoji}
+              <Text style={styles.destinationPinLetter}>
+                {selectedSite.category.charAt(0).toUpperCase()}
               </Text>
             </View>
           </MapboxGL.MarkerView>
@@ -589,14 +884,14 @@ export default function MapScreen() {
         {sites
           .filter((site) => showUnlocked ? true : !unlockedSiteIds.has(site.id))
           .map((site) => (
-          <SiteMarker
-            key={site.id}
-            site={site}
-            isUnlocked={unlockedSiteIds.has(site.id)}
-            isSelected={selectedSite?.id === site.id}
-            onPress={() => handleSelectSite(site)}
-          />
-        ))}
+            <SiteMarker
+              key={site.id}
+              site={site}
+              isUnlocked={unlockedSiteIds.has(site.id)}
+              isSelected={selectedSite?.id === site.id}
+              onPress={() => handleSelectSite(site)}
+            />
+          ))}
       </MapboxGL.MapView>
 
       {/* ── Route loading indicator ── */}
@@ -611,8 +906,8 @@ export default function MapScreen() {
       {routeError && (
         <View style={styles.routeErrorBanner}>
           <Text style={styles.routeErrorTxt}>{routeError}</Text>
-          <TouchableOpacity onPress={() => setRouteError(null)}>
-            <Text style={styles.routeErrorClose}>✕</Text>
+          <TouchableOpacity onPress={() => setRouteError(null)} style={{ paddingLeft: 8 }}>
+            <IconClose size={11} color={Colors.error} />
           </TouchableOpacity>
         </View>
       )}
@@ -623,40 +918,48 @@ export default function MapScreen() {
         onPress={() => router.push('/(tabs)/recommend')}
         activeOpacity={0.85}
       >
-        <Text style={styles.topActionEmoji}>✦</Text>
+        <IconRecommend size={16} color={Colors.primary} />
       </TouchableOpacity>
 
-      {/* ── Right-side cluster: recenter + info + settings (equally spaced) ── */}
-      <View style={styles.rightCluster}>
+      {/* ── Right-side cluster: recenter + history + info + settings ── */}
+      {/* Shifts down when route pill is visible to avoid overlap */}
+      <View style={[styles.rightCluster, activeRoute && styles.rightClusterWithRoute]}>
         {userLocation && (
           <TouchableOpacity
             style={[styles.clusterBtn, followUserLocation && styles.clusterBtnActive]}
             onPress={flyToUser}
             activeOpacity={0.85}
           >
-            <Text style={[styles.clusterBtnIcon, followUserLocation && styles.clusterBtnIconActive]}>◎</Text>
+            <IconLocation size={18} color={Colors.primary} active={followUserLocation} />
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          style={styles.clusterBtn}
+          onPress={() => router.push('/(tabs)/history')}
+          activeOpacity={0.85}
+        >
+          <IconHistory size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.clusterBtn}
           onPress={() => setInfoVisible(true)}
           activeOpacity={0.85}
         >
-          <Text style={styles.topActionTxt}>i</Text>
+          <IconInfo size={18} color={Colors.primary} />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.clusterBtn}
           onPress={() => router.push('/(tabs)/settings')}
           activeOpacity={0.85}
         >
-          <Text style={styles.topActionEmoji}>⚙️</Text>
+          <IconSettings size={18} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
       {/* ── Search bar ── */}
       <View style={styles.searchContainer}>
         <View style={[styles.searchBar, searchFocused && styles.searchBarFocused]}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <IconSearch size={16} color={Colors.textMuted} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search sites, beaches, ruins…"
@@ -668,8 +971,8 @@ export default function MapScreen() {
             returnKeyType="search"
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Text style={styles.searchClear}>✕</Text>
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
+              <IconClose size={10} color={Colors.textMuted} />
             </TouchableOpacity>
           )}
         </View>
@@ -689,7 +992,7 @@ export default function MapScreen() {
         )}
       </View>
 
-      {/* ── Route info pill — rendered after search bar so it sits on top ── */}
+      {/* ── Route info pill — sits below search bar ── */}
       {activeRoute && (
         <View style={styles.routePillContainer}>
           <RouteInfoPill
@@ -697,6 +1000,62 @@ export default function MapScreen() {
             onClear={handleClearRoute}
             onChangeProfile={handleChangeProfile}
           />
+        </View>
+      )}
+
+      {/* ── Quest / exploration tracker — left side, collapsible ── */}
+      {sites.length > 0 && (
+        <View style={[styles.questPanel, activeRoute && styles.questPanelWithRoute]}>
+          {/* Tab / handle — always visible, tap to toggle */}
+          <TouchableOpacity
+            style={styles.questTab}
+            onPress={() => setQuestExpanded((v) => !v)}
+            activeOpacity={0.8}
+          >
+            {/* Vertical progress bar strip */}
+            <View style={styles.questTabTrack}>
+              <View style={[
+                styles.questTabFill,
+                { height: `${Math.round((unlockedSiteIds.size / sites.length) * 100)}%` },
+              ]} />
+            </View>
+            {/* Count badge */}
+            <View style={styles.questTabBadge}>
+              <Text style={styles.questTabCount}>{unlockedSiteIds.size}</Text>
+            </View>
+            {/* Collapse/expand arrow */}
+            <Text style={styles.questTabArrow}>{questExpanded ? '‹' : '›'}</Text>
+          </TouchableOpacity>
+
+          {/* Expanded body */}
+          {questExpanded && (
+            <TouchableOpacity
+              style={styles.questBody}
+              onPress={() => router.push('/(tabs)/history')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.questTitle}>Exploration Trail</Text>
+              {/* Fraction */}
+              <View style={styles.questFractionRow}>
+                <Text style={styles.questCountBig}>{unlockedSiteIds.size}</Text>
+                <Text style={styles.questSlash}>/{sites.length}</Text>
+              </View>
+              {/* Horizontal progress bar */}
+              <View style={styles.questBarTrack}>
+                <View style={[
+                  styles.questBarFill,
+                  { width: `${Math.round((unlockedSiteIds.size / sites.length) * 100)}%` },
+                ]} />
+              </View>
+              <Text style={styles.questSub}>
+                {unlockedSiteIds.size === 0
+                  ? 'Start exploring!'
+                  : unlockedSiteIds.size === sites.length
+                  ? '🎉 All discovered!'
+                  : `${sites.length - unlockedSiteIds.size} left`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -723,13 +1082,6 @@ export default function MapScreen() {
           <Text style={styles.errorBannerTxt}>{locationError}</Text>
         </View>
       )}
-
-      {/* ── Site counter pill ── */}
-      <View style={styles.counterPill}>
-        <Text style={styles.counterTxt}>
-          {unlockedSiteIds.size}/{sites.length} sites unlocked
-        </Text>
-      </View>
 
       {/* ── Info modal ── */}
       <InfoModal visible={infoVisible} onClose={() => setInfoVisible(false)} />
@@ -763,6 +1115,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   map: { flex: 1 },
 
+  // ── Markers ──
   marker: {
     width: 44,
     height: 44,
@@ -784,16 +1137,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.28,
   },
   markerLocked: { borderColor: Colors.border, opacity: 0.75 },
-  markerEmoji: { fontSize: 20 },
-  // Image marker styles
-  markerImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  // Category initial letter replacing emoji
+  markerLetter: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 16,
+    color: Colors.primary,
+    letterSpacing: 0,
   },
-  markerImageLocked: {
-    opacity: 0.55,
-  },
+  markerImage: { width: 40, height: 40, borderRadius: 20 },
+  markerImageLocked: { opacity: 0.55 },
   markerLockOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -801,10 +1153,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.35)',
     borderRadius: 20,
   },
-  markerLockIcon: { fontSize: 14 },
   markerTail: {
-    width: 8,
-    height: 8,
+    width: 8, height: 8,
     backgroundColor: Colors.primary,
     borderRadius: 4,
     alignSelf: 'center',
@@ -812,30 +1162,26 @@ const styles = StyleSheet.create({
   },
   markerTailSelected: { backgroundColor: Colors.accent },
 
-  // Destination pin (shown during active route)
+  // Destination pin
   destinationPin: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 52, height: 52, borderRadius: 26,
     backgroundColor: Colors.bgCard,
-    borderWidth: 3,
-    borderColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 3, borderColor: Colors.accent,
+    alignItems: 'center', justifyContent: 'center',
     shadowColor: Colors.accent,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOpacity: 0.35, shadowRadius: 8, elevation: 8,
   },
-  destinationPinEmoji: { fontSize: 24 },
+  destinationPinLetter: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 20, color: Colors.accent,
+  },
 
-  // Route pill
+  // ── Route pill ──
   routePillContainer: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? 112 : 120,
-    left: Spacing.lg,
-    right: Spacing.lg,
+    top: Platform.OS === 'android' ? 116 : 124,
+    left: Spacing.lg, right: Spacing.lg,
     zIndex: 20,
   },
   routePill: {
@@ -848,310 +1194,250 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 6,
-    borderWidth: 1.5,
-    borderColor: Colors.primary + '30',
+    shadowOpacity: 0.12, shadowRadius: 10, elevation: 6,
+    borderWidth: 1.5, borderColor: Colors.primary + '30',
   },
-  routeInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-  },
-  routeDistance: {
-    fontFamily: Typography.bodySemiBold,
-    fontSize: 15,
-    color: Colors.textPrimary,
-  },
-  routeDot: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  routeDuration: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 14,
-    color: Colors.textSecondary,
-  },
-  profileRow: {
-    flexDirection: 'row',
-    gap: 4,
-  },
+  routeInfo: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  routeDistance: { fontFamily: Typography.bodySemiBold, fontSize: 15, color: Colors.textPrimary },
+  routeDot:      { fontFamily: Typography.bodyFont, fontSize: 14, color: Colors.textMuted },
+  routeDuration: { fontFamily: Typography.bodyFont, fontSize: 14, color: Colors.textSecondary },
+  profileRow: { flexDirection: 'row', gap: 4 },
   profileBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 8, paddingVertical: 5,
+    borderRadius: Radius.md,
+    alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.bg,
   },
   profileBtnActive: {
     backgroundColor: Colors.primary + '20',
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderWidth: 1.5, borderColor: Colors.primary,
   },
-  profileEmoji: { fontSize: 16 },
+  profileBtnTxt: {
+    fontFamily: Typography.bodyMedium, fontSize: 12, color: Colors.textMuted,
+  },
+  profileBtnTxtActive: {
+    color: Colors.primary, fontFamily: Typography.bodySemiBold,
+  },
   routeClearBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 28, height: 28, borderRadius: 14,
     backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  routeClearTxt: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    fontFamily: Typography.bodySemiBold,
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  // Route loading
+  // ── Route loading / error ──
   routeLoadingOverlay: {
-    position: 'absolute',
-    bottom: 200,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    position: 'absolute', bottom: 200, alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: Colors.bgCard,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
+    paddingHorizontal: Spacing.md, paddingVertical: 10,
     borderRadius: Radius.full,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 8, elevation: 4,
   },
-  routeLoadingTxt: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-
-  // Route error
+  routeLoadingTxt: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.textSecondary },
   routeErrorBanner: {
-    position: 'absolute',
-    bottom: 200,
-    left: Spacing.lg,
-    right: Spacing.lg,
-    backgroundColor: Colors.errorLight,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: '#F5C6C1',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    position: 'absolute', bottom: 200, left: Spacing.lg, right: Spacing.lg,
+    backgroundColor: Colors.errorLight, borderRadius: Radius.md,
+    padding: Spacing.md, borderWidth: 1, borderColor: '#F5C6C1',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  routeErrorTxt: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 13,
-    color: Colors.error,
-    flex: 1,
-  },
-  routeErrorClose: {
-    fontSize: 13,
-    color: Colors.error,
-    paddingLeft: 8,
-  },
+  routeErrorTxt: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.error, flex: 1 },
 
-  // Bottom-right cluster — compass at bottom:212, info at bottom:156, settings at bottom:100
-  // Each element is ~44px tall, gap between each is 12px for even spacing
+  // ── Right cluster ──
   rightCluster: {
-    position: 'absolute',
+    position: 'absolute', bottom: 260, right: Spacing.md,
+    flexDirection: 'column', alignItems: 'center', gap: 12, zIndex: 15,
+  },
+  // Shift up when route pill occupies the top area — avoids no conflict needed
+  // (route pill is at top, cluster is at bottom, so no shift needed for cluster)
+  rightClusterWithRoute: {
     bottom: 260,
-    right: Spacing.md,
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 12,
-    zIndex: 15,
   },
   recommendBtn: {
-    position: 'absolute',
-    bottom: 100,
-    left: Spacing.md,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    position: 'absolute', bottom: 100, left: Spacing.md,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: Colors.bgCard,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 5,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    zIndex: 10,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12, shadowRadius: 8, elevation: 5,
+    borderWidth: 1.5, borderColor: Colors.border, zIndex: 10,
   },
   clusterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(0,0,0,0.08)',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15, shadowRadius: 8, elevation: 8,
+    borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.08)',
   },
-  clusterBtnActive: {
-    backgroundColor: '#E8F4FD',
-    borderColor: Colors.primary,
-  },
-  clusterBtnIcon: { fontSize: 22, color: Colors.primary },
-  clusterBtnIconActive: { color: Colors.primary },
-  topActionTxt: {
-    fontFamily: Typography.displayFont,
-    fontSize: 17,
-    color: Colors.primary,
-    fontStyle: 'italic',
-  },
-  topActionEmoji: { fontSize: 20 },
+  clusterBtnActive: { backgroundColor: '#E8F4FD', borderColor: Colors.primary },
 
-  // Search
+  // ── Search ──
   searchContainer: {
     position: 'absolute',
     top: Platform.OS === 'android' ? 52 : 60,
-    left: Spacing.lg,
-    right: Spacing.lg,
-    zIndex: 10,
+    left: Spacing.lg, right: Spacing.lg, zIndex: 10,
   },
   searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.bgCard,
-    borderRadius: Radius.xl,
-    paddingHorizontal: Spacing.md,
-    height: 52,
-    gap: Spacing.sm,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.bgCard, borderRadius: Radius.xl,
+    paddingHorizontal: Spacing.md, height: 52, gap: Spacing.sm,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10, shadowRadius: 12, elevation: 6,
+    borderWidth: 1.5, borderColor: 'transparent',
   },
   searchBarFocused: { borderColor: Colors.borderFocus },
-  searchIcon: { fontSize: 16 },
   searchInput: {
-    flex: 1,
-    fontFamily: Typography.bodyFont,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    height: '100%',
+    flex: 1, fontFamily: Typography.bodyFont, fontSize: 15,
+    color: Colors.textPrimary, height: '100%',
   },
-  searchClear: { fontSize: 13, color: Colors.textMuted, paddingLeft: 4 },
   searchDropdown: {
-    backgroundColor: Colors.bgCard,
-    borderRadius: Radius.lg,
-    marginTop: 6,
-    maxHeight: 220,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.10,
-    shadowRadius: 12,
-    elevation: 6,
-    overflow: 'hidden',
+    backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
+    marginTop: 6, maxHeight: 220,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.10, shadowRadius: 12, elevation: 6, overflow: 'hidden',
   },
   searchResult: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 12,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: Spacing.md, paddingVertical: 12, gap: 10,
   },
-  searchResultEmoji: { fontSize: 20 },
+  // Category badge replacing emoji in search results
+  searchResultBadge: {
+    width: 32, height: 32, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
+  },
+  searchResultBadgeTxt: {
+    fontFamily: Typography.bodySemiBold, fontSize: 13,
+  },
   searchResultText: { flex: 1 },
-  searchResultName: {
-    fontFamily: Typography.bodyMedium,
-    fontSize: 14,
-    color: Colors.textPrimary,
+  searchResultName: { fontFamily: Typography.bodyMedium, fontSize: 14, color: Colors.textPrimary },
+  searchResultSub:  { fontFamily: Typography.bodyFont,   fontSize: 12, color: Colors.textMuted },
+  separator: { height: StyleSheet.hairlineWidth, backgroundColor: Colors.border, marginLeft: 52 },
+
+  // ── Loading / error badges ──
+  locationLoadingBadge: {
+    position: 'absolute', bottom: 100, alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.bgCard,
+    paddingHorizontal: Spacing.md, paddingVertical: 8,
+    borderRadius: Radius.full,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08, shadowRadius: 8, elevation: 4,
   },
-  searchResultSub: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 12,
+  locationLoadingTxt: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.textSecondary },
+  errorBanner: {
+    position: 'absolute', bottom: 100, left: Spacing.lg, right: Spacing.lg,
+    backgroundColor: Colors.errorLight, borderRadius: Radius.md,
+    padding: Spacing.md, borderWidth: 1, borderColor: '#F5C6C1',
+  },
+  errorBannerTxt: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.error, textAlign: 'center' },
+
+  // ── Quest / exploration panel (left side, collapsible) ──
+  questPanel: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 172 : 180,
+    left: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    zIndex: 12,
+  },
+  // When route pill is active, push the quest panel further down to avoid overlap
+  questPanelWithRoute: {
+    top: Platform.OS === 'android' ? 232 : 240,
+  },
+  // The always-visible tab/handle on the left edge
+  questTab: {
+    width: 28,
+    paddingVertical: 10,
+    paddingLeft: 4,
+    paddingRight: 2,
+    backgroundColor: Colors.bgCard,
+    borderTopRightRadius: Radius.md,
+    borderBottomRightRadius: Radius.md,
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 6,
+    elevation: 5,
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    borderColor: Colors.border,
+  },
+  questTabTrack: {
+    width: 4, height: 52, borderRadius: 2,
+    backgroundColor: Colors.border,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  questTabFill: {
+    width: '100%', borderRadius: 2,
+    backgroundColor: Colors.primary,
+  },
+  questTabBadge: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  questTabCount: {
+    fontFamily: Typography.bodySemiBold, fontSize: 10,
+    color: Colors.textInverse, lineHeight: 12,
+  },
+  questTabArrow: {
+    fontFamily: Typography.bodySemiBold, fontSize: 13,
+    color: Colors.textMuted, lineHeight: 14,
+  },
+  // Expanded body panel
+  questBody: {
+    backgroundColor: Colors.bgCard,
+    borderTopRightRadius: Radius.lg,
+    borderBottomRightRadius: Radius.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingLeft: Spacing.sm,
+    gap: 5,
+    minWidth: 130,
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    borderColor: Colors.border,
+  },
+  questTitle: {
+    fontFamily: Typography.bodySemiBold, fontSize: 11,
+    color: Colors.textPrimary, letterSpacing: 0.1,
+  },
+  questFractionRow: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
+  questCountBig: {
+    fontFamily: Typography.displayFont, fontSize: 26,
+    color: Colors.primary, lineHeight: 30,
+  },
+  questSlash: {
+    fontFamily: Typography.bodyFont, fontSize: 13,
     color: Colors.textMuted,
   },
-  separator: { height: 1, backgroundColor: Colors.border, marginLeft: 52 },
-
-  // Loading / error badges
-  locationLoadingBadge: {
-    position: 'absolute',
-    bottom: 100,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.bgCard,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
-    borderRadius: Radius.full,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
+  questBarTrack: {
+    height: 5, borderRadius: 3,
+    backgroundColor: Colors.border, overflow: 'hidden',
   },
-  locationLoadingTxt: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  errorBanner: {
-    position: 'absolute',
-    bottom: 100,
-    left: Spacing.lg,
-    right: Spacing.lg,
-    backgroundColor: Colors.errorLight,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: '#F5C6C1',
-  },
-  errorBannerTxt: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 13,
-    color: Colors.error,
-    textAlign: 'center',
-  },
-
-
-
-  counterPill: {
-    position: 'absolute',
-    bottom: Spacing.xl,
-    alignSelf: 'center',
+  questBarFill: {
+    height: '100%', borderRadius: 3,
     backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: Radius.full,
   },
-  counterTxt: {
-    fontFamily: Typography.bodyMedium,
-    fontSize: 13,
-    color: Colors.textInverse,
-    letterSpacing: 0.3,
+  questSub: {
+    fontFamily: Typography.bodyFont, fontSize: 10,
+    color: Colors.textMuted, lineHeight: 13,
   },
 
+  // ── Dev sign-out ──
   devSignOut: {
-    position: 'absolute',
-    top: Platform.OS === 'android' ? 52 : 60,
-    right: Spacing.lg + 200,
-    display: 'none',
+    position: 'absolute', top: Platform.OS === 'android' ? 52 : 60,
+    right: Spacing.lg + 200, display: 'none',
   },
-  devSignOutTxt: {
-    fontFamily: Typography.bodyMedium,
-    fontSize: 13,
-    color: Colors.error,
-  },
+  devSignOutTxt: { fontFamily: Typography.bodyMedium, fontSize: 13, color: Colors.error },
 })

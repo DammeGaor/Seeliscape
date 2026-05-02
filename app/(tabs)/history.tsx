@@ -151,7 +151,7 @@ export default function HistoryScreen() {
                   <View style={styles.cardHeader}>
                     <Text style={styles.cardName} numberOfLines={1}>{site.name}</Text>
                     <View style={styles.unlockedPill}>
-                      <Text style={styles.unlockedPillTxt}>🔓 Visited</Text>
+                      <Text style={styles.unlockedPillTxt}>Visited</Text>
                     </View>
                   </View>
 
@@ -194,7 +194,7 @@ export default function HistoryScreen() {
                       }}
                       activeOpacity={0.75}
                     >
-                      <Text style={styles.directionsBtnTxt}>🗺️ Directions</Text>
+                      <Text style={styles.directionsBtnTxt}>Directions</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -205,10 +205,10 @@ export default function HistoryScreen() {
           {/* Summary stats */}
           <View style={styles.statsBox}>
             <Text style={styles.statsTitle}>Your Trail Summary</Text>
-            <Text style={styles.statLine}>🏅 Sites visited: {visitedEntries.length}</Text>
-            <Text style={styles.statLine}>📝 Sites reviewed: {reviews.length}</Text>
+            <Text style={styles.statLine}>Sites visited: {visitedEntries.length}</Text>
+            <Text style={styles.statLine}>Sites reviewed: {reviews.length}</Text>
             <Text style={styles.statLine}>
-              ⭐ Your contributions help shape recommendations for all tourists in Albay.
+              Your contributions help shape recommendations for all tourists in Albay.
             </Text>
           </View>
 

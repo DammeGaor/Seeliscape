@@ -331,7 +331,7 @@ export function SiteSheet({
               </Text>
             </TouchableOpacity>
             <View style={styles.lockedBanner}>
-              <Text style={styles.lockedIcon}>🔒</Text>
+              <Text style={styles.lockedIcon}></Text>
               <View>
                 <Text style={styles.lockedTitle}>Visit to unlock</Text>
                 <Text style={styles.lockedSub}>
@@ -370,7 +370,7 @@ export function SiteSheet({
           activeOpacity={0.85}
         >
           <Text style={styles.directionsBtnTxt}>
-            {hasActiveRoute ? '🔄  Reroute' : 'Get Directions'}
+            {hasActiveRoute ? 'Reroute' : 'Get Directions'}
           </Text>
         </TouchableOpacity>
 

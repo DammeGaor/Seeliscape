@@ -24,32 +24,45 @@ import { fetchARObjects } from '@/lib/ar.service'
 import { Colors, Spacing, Radius, Typography } from '@/constants/theme'
 
 // ---------------------------------------------------------------------------
-// Scene-relative placement
-//
-// Objects are positioned using authored offsets (offset_x, offset_y, offset_z)
-// stored in Supabase — not GPS coordinates. Viro world origin [0,0,0] is
-// wherever the device is when the scene initialises, with -Z pointing in the
-// direction the camera faces on launch.
-//
-// Authoring convention:
-//   offset_x  — metres left (−) / right (+) of camera opening direction
-//   offset_y  — metres below (−) / above (+) eye level (1.5 ≈ eye level)
-//   offset_z  — negative = in front of user  e.g. -3 places object 3 m ahead
+// Types
 // ---------------------------------------------------------------------------
 
+interface PlacedObject {
+  obj: ARObject
+  position: [number, number, number]
+}
+
 // ---------------------------------------------------------------------------
-// Inner AR scene (passed to ViroARSceneNavigator)
+// Inner AR scene
 // ---------------------------------------------------------------------------
+
 interface SceneProps {
-  arObjects: ARObject[]
+  placedObjects: PlacedObject[]
+  queueLength: number
+  onPlaceObject: (position: [number, number, number]) => void
   onSelectObject: (obj: ARObject) => void
+  onSceneRef: (ref: any) => void
 }
 
 function ARScene({ sceneNavigator }: { sceneNavigator: { viroAppProps: SceneProps } }) {
-  const { arObjects, onSelectObject } = sceneNavigator.viroAppProps
+  const { placedObjects, queueLength, onPlaceObject, onSelectObject, onSceneRef } =
+    sceneNavigator.viroAppProps
+
+  // Expose the ViroARScene ref up to ARView so the native tap overlay
+  // can call performARHitTestWithRay without needing Viro onClick.
+  const arSceneRef = useRef<any>(null)
+  const setRef = useCallback((ref: any) => {
+    arSceneRef.current = ref
+    onSceneRef(ref)
+  }, [onSceneRef])
+
+  console.log('[ARScene] 🔄 render', {
+    queueLength,
+    placedCount: placedObjects.length,
+  })
 
   return (
-    <ViroARScene>
+    <ViroARScene ref={setRef}>
       <ViroAmbientLight color="#ffffff" intensity={200} />
       <ViroDirectionalLight
         color="#ffffff"
@@ -57,50 +70,42 @@ function ARScene({ sceneNavigator }: { sceneNavigator: { viroAppProps: SceneProp
         intensity={300}
         castsShadow
       />
-      {arObjects.map((obj) => {
-        // Place each object at its authored scene-relative offset.
-        // All three fields default to 0 if not set, landing the object at the
-        // camera origin — authors should always set at least offset_z to a
-        // negative value so the object appears in front of the user.
-        const position: [number, number, number] = [
-          obj.offset_x ?? 0,
-          obj.offset_y ?? 1.5,
-          obj.offset_z ?? -3,
-        ]
-        return (
-          <ViroNode key={obj.id} position={position}>
-            <Viro3DObject
-              source={{ uri: obj.modelUrl }}
-              type="GLB"
-              scale={[obj.scale, obj.scale, obj.scale]}
-              onClick={() => onSelectObject(obj)}
-              animation={{ name: 'idle', run: true, loop: true }}
-            />
-            <ViroFlexView
-              style={styles.labelContainer}
-              position={[0, obj.scale * 1.5 + 0.3, 0]}
+
+      {/* Render every placed object at its locked world position */}
+      {placedObjects.map(({ obj, position }) => (
+        <ViroNode key={obj.id} position={position}>
+          <Viro3DObject
+            source={{ uri: obj.modelUrl }}
+            type="GLB"
+            scale={[obj.scale, obj.scale, obj.scale]}
+            onClick={() => onSelectObject(obj)}
+            animation={{ name: 'idle', run: true, loop: true }}
+          />
+          <ViroFlexView
+            style={styles.labelContainer}
+            position={[0, obj.scale * 1.5 + 0.3, 0]}
+            width={1.2}
+            height={0.35}
+            onClick={() => onSelectObject(obj)}
+          >
+            <ViroText
+              text={obj.name}
+              style={styles.labelText}
               width={1.2}
               height={0.35}
-              onClick={() => onSelectObject(obj)}
-            >
-              <ViroText
-                text={obj.name}
-                style={styles.labelText}
-                width={1.2}
-                height={0.35}
-                textClipMode="none"
-              />
-            </ViroFlexView>
-          </ViroNode>
-        )
-      })}
+              textClipMode="None"
+            />
+          </ViroFlexView>
+        </ViroNode>
+      ))}
     </ViroARScene>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Info panel — slides up when an AR object is tapped
+// Info panel — slides up when a placed AR object is tapped
 // ---------------------------------------------------------------------------
+
 function ObjectInfoPanel({ obj, onClose }: { obj: ARObject; onClose: () => void }) {
   const slideAnim = useRef(new Animated.Value(200)).current
 
@@ -137,8 +142,50 @@ function ObjectInfoPanel({ obj, onClose }: { obj: ARObject; onClose: () => void 
 }
 
 // ---------------------------------------------------------------------------
+// Scan hint — context-aware message at the bottom of the screen
+// ---------------------------------------------------------------------------
+
+function ScanHint({
+  loading,
+  error,
+  totalObjects,
+  placedCount,
+  queueLength,
+}: {
+  loading: boolean
+  error: boolean
+  totalObjects: number
+  placedCount: number
+  queueLength: number
+}) {
+  let message: string
+
+  if (loading) {
+    message = 'Loading AR objects…'
+  } else if (error) {
+    return null
+  } else if (totalObjects === 0) {
+    message = 'No AR objects found for this landmark'
+  } else if (queueLength > 0) {
+    message =
+      placedCount === 0
+        ? 'Point at a flat surface and tap to place the first object'
+        : `${queueLength} object${queueLength !== 1 ? 's' : ''} remaining — tap a surface to place the next`
+  } else {
+    message = `All ${totalObjects} object${totalObjects !== 1 ? 's' : ''} placed — tap any to learn more`
+  }
+
+  return (
+    <View style={styles.scanHint}>
+      <Text style={styles.scanHintTxt}>{message}</Text>
+    </View>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main ARView component
 // ---------------------------------------------------------------------------
+
 interface ARViewProps {
   landmarkId: number
   onClose: () => void
@@ -150,39 +197,143 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
   const [error, setError]                   = useState<string | null>(null)
   const [selectedObject, setSelectedObject] = useState<ARObject | null>(null)
 
+  // Queue of objects waiting to be placed (index into arObjects array)
+  const [queueIndex, setQueueIndex]         = useState(0)
+  // Objects that have been tapped into the scene with a locked position
+  const [placedObjects, setPlacedObjects]   = useState<PlacedObject[]>([])
+
   useEffect(() => {
+    console.log('[ARView] 🌐 Fetching AR objects for landmarkId:', landmarkId)
     fetchARObjects(landmarkId)
-      .then(setARObjects)
-      .catch(() => setError('Failed to load AR content.'))
+      .then((objects) => {
+        console.log('[ARView] ✅ Fetched AR objects:', objects.length, objects.map(o => o.name))
+        setARObjects(objects)
+      })
+      .catch((err) => {
+        console.error('[ARView] ❌ Failed to fetch AR objects:', err)
+        setError('Failed to load AR content.')
+      })
       .finally(() => setLoading(false))
   }, [landmarkId])
 
-  // Stable callback — prevents viroAppProps changing identity on every render,
-  // which causes ViroReact to re-mount the scene and duplicate objects.
+  // Derived queue length — how many objects are still waiting to be placed
+  const queueLength = arObjects.length - queueIndex
+
+  // Use a ref so handlePlaceObject always sees the latest arObjects and
+  // queueIndex without needing them as dependencies (which would cause
+  // viroAppProps to change identity and re-mount the scene).
+  const arObjectsRef = useRef<ARObject[]>(arObjects)
+  const queueIndexRef = useRef(queueIndex)
+  useEffect(() => { arObjectsRef.current = arObjects }, [arObjects])
+  // (arObjects is set via setARObjects — the ref just mirrors it for stable callbacks)
+  useEffect(() => { queueIndexRef.current = queueIndex }, [queueIndex])
+
+  // Called by the scene when the user taps a detected surface.
+  // Dequeues the next object and locks it at the tapped world position.
+  const handlePlaceObject = useCallback(
+    (position: [number, number, number]) => {
+      const idx = queueIndexRef.current
+      const objects = arObjectsRef.current
+      console.log('[ARView] 📦 handlePlaceObject called', {
+        position,
+        idx,
+        totalObjects: objects.length,
+        nextObject: objects[idx] ?? null,
+      })
+      if (idx >= objects.length) {
+        console.log('[ARView] ⚠️  handlePlaceObject: idx out of bounds, nothing to place')
+        return
+      }
+      const obj = objects[idx]
+      console.log('[ARView] ✅ handlePlaceObject: placing', obj.name, 'at', position)
+      setPlacedObjects((prev) => [...prev, { obj, position }])
+      setQueueIndex(idx + 1)
+    },
+    [], // stable — reads latest values via refs
+  )
+
   const handleSelectObject = useCallback((obj: ARObject) => {
     setSelectedObject(obj)
   }, [])
 
-  // Memoize the entire props object so ViroARSceneNavigator receives the same
-  // reference between renders unless arObjects actually changes.
-  const viroAppProps = useMemo(() => ({
-    arObjects,
-    onSelectObject: handleSelectObject,
-  }), [arObjects, handleSelectObject])
+  // Ref to the ViroARScene instance — set from inside ARScene via onSceneRef
+  const arSceneRef = useRef<any>(null)
+  const handleSceneRef = useCallback((ref: any) => {
+    console.log('[ARView] 📷 scene ref received', !!ref)
+    arSceneRef.current = ref
+  }, [])
+
+  // Called by the native TouchableOpacity overlay on every tap.
+  // We fire a hit-test from screen centre; Viro maps it to world space.
+  const handleARTap = useCallback(async () => {
+    console.log('[ARView] 👆 handleARTap — queueLength:', queueIndexRef.current, 'sceneRef:', !!arSceneRef.current)
+
+    if (queueIndexRef.current >= arObjectsRef.current.length) {
+      console.log('[ARView] ⚠️ tap ignored — nothing left to place')
+      return
+    }
+
+    if (!arSceneRef.current) {
+      console.log('[ARView] ⚠️ tap ignored — scene ref not ready yet')
+      return
+    }
+
+    try {
+      // Screen centre [0,0] in Viro's normalised coords
+      const results = await arSceneRef.current.performARHitTestWithRay([0, 0, -1])
+      console.log('[ARView] 🎯 hit test results:', JSON.stringify(results))
+
+      if (!results || results.length === 0) {
+        console.log('[ARView] ⚠️ no surface found — point camera at a textured flat surface')
+        return
+      }
+
+      const hit =
+        results.find((r: any) =>
+          r.type === 'ExistingPlaneUsingExtent' || r.type === 'ExistingPlane'
+        ) ?? results[0]
+
+      const position: [number, number, number] = hit.transform.position
+      console.log('[ARView] ✅ placing at', position, 'type:', hit.type)
+      handlePlaceObject(position)
+    } catch (err) {
+      console.error('[ARView] ❌ hit test failed', err)
+    }
+  }, [handlePlaceObject])
+
+  const viroAppProps = useMemo<SceneProps>(
+    () => ({
+      placedObjects,
+      queueLength,
+      onPlaceObject: handlePlaceObject,
+      onSelectObject: handleSelectObject,
+      onSceneRef: handleSceneRef,
+    }),
+    [placedObjects, queueLength, handlePlaceObject, handleSelectObject, handleSceneRef],
+  )
 
   return (
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {/* AR camera starts immediately — no waiting for Supabase fetch.
-          Objects are passed in via viroAppProps once the fetch resolves,
-          so the camera is already initialised by the time models arrive. */}
+      {/* AR camera boots immediately; objects are placed on demand */}
       {!error && (
         <ViroARSceneNavigator
           style={styles.arView}
           autofocus
           initialScene={{ scene: ARScene }}
           viroAppProps={viroAppProps}
+        />
+      )}
+
+      {/* Native tap overlay — sits above the AR view so taps are always
+          captured even when there are no 3D objects to click on yet.
+          Hidden once all objects are placed. */}
+      {!error && queueLength > 0 && (
+        <TouchableOpacity
+          style={styles.tapOverlay}
+          activeOpacity={1}
+          onPress={handleARTap}
         />
       )}
 
@@ -193,7 +344,7 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
         </View>
       )}
 
-      {/* HUD — always rendered so close button is always accessible */}
+      {/* HUD */}
       <View style={styles.hud}>
         <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.85}>
           <Text style={styles.closeBtnTxt}>✕</Text>
@@ -207,26 +358,25 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
             <View style={styles.objectCount}>
               <ActivityIndicator size="small" color="rgba(255,255,255,0.8)" />
             </View>
-          ) : !error && (
+          ) : !error ? (
             <View style={styles.objectCount}>
               <Text style={styles.objectCountTxt}>
-                {arObjects.length} object{arObjects.length !== 1 ? 's' : ''}
+                {placedObjects.length}/{arObjects.length} placed
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
       </View>
 
-      {!error && !selectedObject && (
-        <View style={styles.scanHint}>
-          <Text style={styles.scanHintTxt}>
-            {loading
-              ? 'Loading AR objects…'
-              : arObjects.length === 0
-                ? 'No AR objects found for this landmark'
-                : 'Point your camera ahead — objects are placed in front of you'}
-          </Text>
-        </View>
+      {/* Context-aware hint — hidden while info panel is open */}
+      {!selectedObject && (
+        <ScanHint
+          loading={loading}
+          error={!!error}
+          totalObjects={arObjects.length}
+          placedCount={placedObjects.length}
+          queueLength={queueLength}
+        />
       )}
 
       {selectedObject && (
@@ -239,6 +389,7 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
+
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
@@ -247,17 +398,15 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   arView: { flex: 1 },
+  tapOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-  },
-  loadingTxt: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 15,
-    color: Colors.textInverse,
-    marginTop: 8,
   },
   errorEmoji: { fontSize: 40, marginBottom: 8 },
   errorTxt: {

@@ -16,46 +16,77 @@ import { useAuthStore } from '@/store/auth.store'
 import { useMapStore } from '@/store/map.store'
 import { Colors, Spacing, Radius, Typography } from '@/constants/theme'
 
-// ─── Row components ───────────────────────────────────────────────────────────
+// ─── Chevron drawn with pure View borders (no icon library needed) ────────────
+function Chevron() {
+  return (
+    <View style={chevronStyles.wrap}>
+      <View style={chevronStyles.arm} />
+    </View>
+  )
+}
+
+const chevronStyles = StyleSheet.create({
+  wrap: {
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
+  arm: {
+    width: 7,
+    height: 7,
+    borderRightWidth: 1.5,
+    borderTopWidth: 1.5,
+    borderColor: Colors.textMuted,
+    transform: [{ rotate: '45deg' }],
+    marginLeft: -3,
+  },
+})
+
+// ─── Row ─────────────────────────────────────────────────────────────────────
 function SettingsRow({
-  icon,
   label,
   sublabel,
   onPress,
   danger,
   rightElement,
+  showChevron,
 }: {
-  icon: string
   label: string
   sublabel?: string
   onPress?: () => void
   danger?: boolean
   rightElement?: React.ReactNode
+  showChevron?: boolean
 }) {
   return (
     <TouchableOpacity
       style={styles.row}
       onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
+      activeOpacity={onPress ? 0.55 : 1}
       disabled={!onPress && !rightElement}
     >
-      <View style={[styles.rowIcon, danger && styles.rowIconDanger]}>
-        <Text style={styles.rowIconEmoji}>{icon}</Text>
-      </View>
       <View style={styles.rowText}>
-        <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>{label}</Text>
-        {sublabel && <Text style={styles.rowSublabel}>{sublabel}</Text>}
+        <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]}>
+          {label}
+        </Text>
+        {sublabel ? (
+          <Text style={styles.rowSublabel}>{sublabel}</Text>
+        ) : null}
       </View>
-      {rightElement ?? (onPress && !danger
-        ? <Text style={styles.rowChevron}>›</Text>
-        : null
-      )}
+      {rightElement ?? (showChevron ? <Chevron /> : null)}
     </TouchableOpacity>
   )
 }
 
 function SectionHeader({ title }: { title: string }) {
-  return <Text style={styles.sectionHeader}>{title}</Text>
+  return (
+    <View style={styles.sectionHeaderRow}>
+      <Text style={styles.sectionHeader}>{title}</Text>
+      <View style={styles.sectionHeaderLine} />
+    </View>
+  )
 }
 
 function Separator() {
@@ -121,7 +152,7 @@ export default function SettingsScreen() {
       {/* ── Header ── */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backArrow}>←</Text>
+          <View style={styles.backArrowIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={{ width: 40 }} />
@@ -139,9 +170,12 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileEmail}>{email}</Text>
-            <Text style={styles.profileStat}>
-              {unlockedCount} site{unlockedCount !== 1 ? 's' : ''} unlocked
-            </Text>
+            <View style={styles.profileStatRow}>
+              <View style={styles.profileStatDot} />
+              <Text style={styles.profileStat}>
+                {unlockedCount} site{unlockedCount !== 1 ? 's' : ''} unlocked
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -149,7 +183,6 @@ export default function SettingsScreen() {
         <SectionHeader title="Map" />
         <View style={styles.section}>
           <SettingsRow
-            icon="🔔"
             label="Proximity alerts"
             sublabel="Notify when near a landmark"
             rightElement={
@@ -163,7 +196,6 @@ export default function SettingsScreen() {
           />
           <Separator />
           <SettingsRow
-            icon="📡"
             label="High accuracy GPS"
             sublabel="Uses more battery"
             rightElement={
@@ -177,7 +209,6 @@ export default function SettingsScreen() {
           />
           <Separator />
           <SettingsRow
-            icon="🏆"
             label="Hide unlocked sites"
             sublabel="Only show landmarks you haven't visited"
             rightElement={
@@ -195,16 +226,15 @@ export default function SettingsScreen() {
         <SectionHeader title="Progress" />
         <View style={styles.section}>
           <SettingsRow
-            icon="🗺️"
             label="Unlocked sites"
             sublabel={`${unlockedCount} landmark${unlockedCount !== 1 ? 's' : ''} visited`}
           />
           <Separator />
           <SettingsRow
-            icon="🔄"
             label="Reset progress"
             sublabel="Clear all unlocked sites"
             onPress={handleResetProgress}
+            showChevron
           />
         </View>
 
@@ -212,9 +242,11 @@ export default function SettingsScreen() {
         <SectionHeader title="About" />
         <View style={styles.section}>
           <SettingsRow
-            icon="📱"
             label="App version"
             sublabel="1.0.0 (Beta)"
+            rightElement={
+              <Text style={styles.versionBadge}>1.0.0</Text>
+            }
           />
         </View>
 
@@ -224,10 +256,10 @@ export default function SettingsScreen() {
             <SectionHeader title="Admin" />
             <View style={styles.section}>
               <SettingsRow
-                icon="🛠️"
                 label="Admin Panel"
                 sublabel="Manage destinations and content"
                 onPress={() => router.push('/(admin)/')}
+                showChevron
               />
             </View>
           </>
@@ -237,14 +269,13 @@ export default function SettingsScreen() {
         <SectionHeader title="Account" />
         <View style={styles.section}>
           <SettingsRow
-            icon="🚪"
             label="Sign out"
             onPress={handleSignOut}
             danger
           />
         </View>
 
-        <Text style={styles.footer}>✦  Explore the beauty of Bicol  ✦</Text>
+        <Text style={styles.footer}>Seeliscape · Explore the beauty of Bicol</Text>
       </ScrollView>
     </View>
   )
@@ -253,7 +284,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
 
-  // Header
+  // ── Header ──
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -262,7 +293,7 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? Spacing.xl + 8 : Spacing.xl,
     paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.lg,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.border,
   },
   backBtn: {
@@ -271,21 +302,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backArrow: {
-    fontSize: 22,
-    color: Colors.textPrimary,
+  // Pure-View back arrow (no emoji, no icon library)
+  backArrowIcon: {
+    width: 10,
+    height: 10,
+    borderLeftWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: Colors.textPrimary,
+    transform: [{ rotate: '45deg' }],
+    marginLeft: 4,
   },
   headerTitle: {
     fontFamily: Typography.displayFont,
-    fontSize: 18,
+    fontSize: 17,
     color: Colors.textPrimary,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 48 },
+  scrollContent: { paddingBottom: 56 },
 
-  // Profile card
+  // ── Profile card ──
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -294,38 +331,45 @@ const styles = StyleSheet.create({
     margin: Spacing.lg,
     borderRadius: Radius.xl,
     padding: Spacing.lg,
-    borderWidth: 1.5,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
   profileAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   profileAvatarTxt: {
     fontFamily: Typography.displayFont,
-    fontSize: 20,
+    fontSize: 19,
     color: Colors.textInverse,
+    letterSpacing: 0,
   },
-  profileInfo: { flex: 1 },
+  profileInfo: { flex: 1, gap: 4 },
   profileEmail: {
     fontFamily: Typography.bodyMedium,
     fontSize: 14,
     color: Colors.textPrimary,
-    marginBottom: 3,
+  },
+  profileStatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  profileStatDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+    opacity: 0.7,
   },
   profileStat: {
     fontFamily: Typography.bodyFont,
@@ -333,74 +377,93 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
 
-  // Section
-  sectionHeader: {
-    fontFamily: Typography.bodyMedium,
-    fontSize: 11,
-    color: Colors.textMuted,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+  // ── Section header ──
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     marginHorizontal: Spacing.lg,
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xl,
     marginBottom: Spacing.sm,
   },
+  sectionHeader: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 11,
+    color: Colors.textMuted,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  sectionHeaderLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.border,
+  },
+
+  // ── Section card ──
   section: {
     backgroundColor: Colors.bgCard,
     marginHorizontal: Spacing.lg,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
+    borderRadius: Radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.border,
     overflow: 'hidden',
   },
 
-  // Row
+  // ── Row ──
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
-    paddingVertical: 14,
-    gap: Spacing.md,
+    paddingVertical: 13,
+    gap: Spacing.sm,
+    minHeight: 52,
   },
-  rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowIconDanger: { backgroundColor: '#FEE2E2' },
-  rowIconEmoji: { fontSize: 18 },
   rowText: { flex: 1 },
   rowLabel: {
     fontFamily: Typography.bodyMedium,
     fontSize: 15,
     color: Colors.textPrimary,
+    letterSpacing: -0.1,
   },
-  rowLabelDanger: { color: Colors.error },
+  rowLabelDanger: {
+    color: Colors.error,
+    fontFamily: Typography.bodyFont,
+  },
   rowSublabel: {
     fontFamily: Typography.bodyFont,
     fontSize: 12,
     color: Colors.textMuted,
     marginTop: 2,
-  },
-  rowChevron: {
-    fontSize: 20,
-    color: Colors.textMuted,
-    marginRight: 4,
+    lineHeight: 16,
   },
   separator: {
-    height: 1,
+    height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.border,
-    marginLeft: 56 + Spacing.md,
+    marginLeft: Spacing.md,
   },
 
-  footer: {
+  // ── Version badge ──
+  versionBadge: {
     fontFamily: Typography.bodyFont,
     fontSize: 12,
     color: Colors.textMuted,
+    backgroundColor: Colors.bg,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+
+  // ── Footer ──
+  footer: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 11,
+    color: Colors.textMuted,
     textAlign: 'center',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
     marginTop: Spacing.xl,
+    opacity: 0.7,
   },
 })

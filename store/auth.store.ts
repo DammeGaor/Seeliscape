@@ -29,8 +29,6 @@ async function fetchRole(userId: string): Promise<'tourist' | 'admin'> {
     .eq('id', userId)
     .single()
 
-  console.log('[fetchRole] userId:', userId, '| data:', data, '| error:', error?.message)
-
   if (error || !data) return 'tourist'
   return data.role === 'admin' ? 'admin' : 'tourist'
 }
@@ -70,8 +68,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     let role: 'tourist' | 'admin' = 'tourist'
     if (userId) role = await fetchRole(userId)
 
-    console.log('[auth] initialize — role:', role, '| isAdmin:', role === 'admin')
-
     set({
       session,
       user:    session?.user ?? null,
@@ -90,8 +86,6 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       let role: 'tourist' | 'admin' = 'tourist'
       if (userId) role = await fetchRole(userId)
-
-      console.log('[auth] onAuthStateChange — event:', _event, '| role:', role)
 
       set({
         session,
