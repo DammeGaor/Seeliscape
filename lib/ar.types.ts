@@ -6,7 +6,8 @@ export interface ARObject {
   landmarkId: number
   name: string
   description: string | null
-  modelUrl: string       // full public URL to .glb in Supabase Storage
+  modelUrl: string        // full public URL to .glb in Supabase Storage
+  imageUrl?: string       // optional: if set, renders as a flat ViroImage card instead of a 3D model
   scale: number
   // Scene-relative placement offsets (metres).
   // x = left(−)/right(+), y = down(−)/up(+), z = behind(−)/in-front(+, use negative)

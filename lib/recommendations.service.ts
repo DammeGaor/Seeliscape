@@ -232,7 +232,8 @@ export async function fetchLandmarksForTOPSIS(): Promise<LandmarkRow[]> {
       id, name, description, img_url,
       attraction, accessibility, amenities,
       "availablePackages", activities, "ancillaryServices",
-      avg_review_score, review_count
+      avg_review_score, review_count,
+      city, is_popular
     `)
     .order('name', { ascending: true })
 
@@ -246,7 +247,7 @@ export async function fetchLandmarksForTOPSIS(): Promise<LandmarkRow[]> {
     name:              row.name,
     category:          '',
     barangay:          '',
-    municipality:      '',
+    municipality:      row.city ?? '',
     description:       row.description ?? '',
     shortDescription:  (row.description ?? '').slice(0, 80),
     latitude:          0,
@@ -259,6 +260,8 @@ export async function fetchLandmarksForTOPSIS(): Promise<LandmarkRow[]> {
     activities:        row.activities        ?? 0,
     ancillaryServices: row.ancillaryServices  ?? 0,
     avgReviewScore:    row.avg_review_score  ?? undefined,
+    city:              row.city              ?? null,
+    is_popular:        row.is_popular        ?? false,
   }))
 }
 

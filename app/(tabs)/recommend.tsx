@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// app/(tabs)/recommend.tsx
+// app/(tabs)/recommend.tsx  — Improved UX/UI
 // Full recommendation flow:
 //   Step 1 — Preset profiles OR manual 6A criteria weighting
 //   Step 2 — TOPSIS results with images, per-criterion breakdown, AI summary,
@@ -46,7 +46,7 @@ const TINTS: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
-// Preset profiles  (Feature #3)
+// Preset profiles
 // ---------------------------------------------------------------------------
 interface Preset {
   label: string
@@ -89,49 +89,78 @@ const PRESETS: Preset[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// WeightPicker — row of 5 pips
+// Filter — scope options
+// ---------------------------------------------------------------------------
+type FilterScope = 'all' | 'popular' | 'municipality'
+
+const MUNICIPALITIES = [
+  'Legazpi City', 'Ligao City', 'Tabaco City', 'Bacacay', 'Daraga',
+  'Camalig', 'Guinobatan', 'Jovellar', 'Libon', 'Malinao', 'Malilipot',
+  'Manito', 'Oas', 'Polangui', 'Pio Duran', 'Rapu Rapu', 'Tiwi', 'Sto. Domingo',
+]
+
+// ---------------------------------------------------------------------------
+// WeightPicker — row of 5 pips, with unset (0) state
 // ---------------------------------------------------------------------------
 function WeightPicker({
   value, onChange, color,
 }: { value: number; onChange: (v: number) => void; color: string }) {
+  const labels = ['Low', '', 'Mid', '', 'High']
   return (
-    <View style={wStyles.row}>
-      {[1, 2, 3, 4, 5].map((pip) => (
-        <TouchableOpacity
-          key={pip}
-          style={[wStyles.pip, pip <= value && { backgroundColor: color, borderColor: color }]}
-          onPress={() => onChange(pip)}
-          activeOpacity={0.75}
-        >
-          <Text style={[wStyles.pipTxt, pip <= value && { color: '#fff', fontFamily: Typography.bodySemiBold }]}>
-            {pip}
-          </Text>
-        </TouchableOpacity>
-      ))}
+    <View style={wStyles.container}>
+      <View style={wStyles.row}>
+        {[1, 2, 3, 4, 5].map((pip) => (
+          <TouchableOpacity
+            key={pip}
+            style={[
+              wStyles.pip,
+              value === 0 && wStyles.pipUnset,
+              pip <= value && { backgroundColor: color, borderColor: color },
+            ]}
+            onPress={() => onChange(pip)}
+            activeOpacity={0.75}
+          >
+            <Text style={[wStyles.pipTxt, pip <= value && { color: '#fff', fontFamily: Typography.bodySemiBold }]}>
+              {pip}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      {value === 0 && (
+        <Text style={wStyles.tapHint}>Tap a number to rate this</Text>
+      )}
     </View>
   )
 }
 
 const wStyles = StyleSheet.create({
+  container: { gap: 4 },
   row: { flexDirection: 'row', gap: 6 },
   pip: {
     width: 40, height: 40, borderRadius: 10,
     backgroundColor: Colors.bg, borderWidth: 1.5, borderColor: Colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
+  pipUnset: {
+    borderStyle: 'dashed',
+    borderColor: Colors.border,
+    backgroundColor: 'transparent',
+  },
   pipTxt: { fontFamily: Typography.bodyFont, fontSize: 14, color: Colors.textMuted },
+  tapHint: {
+    fontFamily: Typography.bodyFont, fontSize: 10,
+    color: Colors.textMuted, fontStyle: 'italic',
+  },
 })
 
 // ---------------------------------------------------------------------------
 // CriterionBar — shows a site's score for one criterion as a filled bar
-// with the user's weight priority label  (Feature #2)
 // ---------------------------------------------------------------------------
 function CriterionBar({
   criterionKey, score, weight,
 }: { criterionKey: keyof SixAs; score: number; weight: number }) {
   const meta  = CRITERIA_META[criterionKey]
   const color = TINTS[criterionKey] ?? Colors.primary
-  // scores from Supabase are 0–5; normalise directly to 0–1 for the bar
   const pct   = Math.min(1, Math.max(0, score / 5))
   const isHighPriority = weight >= 4
   const isLowPriority  = weight <= 2
@@ -140,7 +169,6 @@ function CriterionBar({
     <View style={barStyles.row}>
       <Text style={barStyles.emoji}>{meta.emoji}</Text>
       <View style={barStyles.track}>
-        {/* flex ratio instead of percentage string — reliably scales in RN flex layout */}
         <View style={[barStyles.fill, { flex: pct, backgroundColor: color }]} />
         <View style={{ flex: 1 - pct }} />
       </View>
@@ -162,14 +190,12 @@ const barStyles = StyleSheet.create({
 })
 
 // ---------------------------------------------------------------------------
-// TOPSISAlgorithmPanel — transparent score breakdown  (Task 1)
-// Shows: (1) user weights, (2) weighted contributions, (3) closeness plain-English
+// TOPSISAlgorithmPanel — transparent score breakdown
 // ---------------------------------------------------------------------------
 function TOPSISAlgorithmPanel({
   site, weights, allSites,
 }: { site: RankedSite; weights: CriteriaWeights; allSites: RankedSite[] }) {
 
-  // ── Section 1: user weights ───────────────────────────────────────────────
   const weightRows = CRITERIA_KEYS.map((k) => ({
     key: k,
     label: CRITERIA_META[k].label,
@@ -178,9 +204,6 @@ function TOPSISAlgorithmPanel({
     color: TINTS[k] ?? Colors.primary,
   }))
 
-  // ── Section 2: weighted contribution per criterion ────────────────────────
-  // Mirror the TOPSIS normalisation so we can show each criterion's contribution.
-  // col norm = sqrt( sum of squares across ALL sites for this criterion )
   const colNorms: Record<keyof SixAs, number> = {} as any
   CRITERIA_KEYS.forEach((k) => {
     const sumSq = allSites.reduce((acc, s) => acc + ((s as any)[k] ?? 0) ** 2, 0)
@@ -193,13 +216,11 @@ function TOPSISAlgorithmPanel({
   })
   const maxContrib = Math.max(...weightedContribs.map((c) => c.contrib), 0.0001)
 
-  // ── Section 3: closeness coefficient plain-English ────────────────────────
-  const score    = site.topsisScore          // 0–1
+  const score    = site.topsisScore
   const total    = allSites.length
   const beaten   = allSites.filter((s) => s.topsisScore < score).length
   const pctLabel = `${Math.round(score * 100)}%`
 
-  // Position of this site on the PIS–NIS spectrum (0 = worst, 1 = best)
   const minScore = Math.min(...allSites.map((s) => s.topsisScore))
   const maxScore = Math.max(...allSites.map((s) => s.topsisScore))
   const spectrumPct = maxScore === minScore
@@ -208,14 +229,9 @@ function TOPSISAlgorithmPanel({
 
   return (
     <View style={algoStyles.container}>
-
-      {/* ── Divider ── */}
       <View style={algoStyles.divider} />
-
-      {/* ── Section header ── */}
       <Text style={algoStyles.sectionHeader}>HOW THE SCORE WAS CALCULATED</Text>
 
-      {/* ══ Step 1: Your weights ══ */}
       <View style={algoStyles.stepBlock}>
         <Text style={algoStyles.stepTitle}>① Your Priorities</Text>
         <Text style={algoStyles.stepDesc}>
@@ -244,7 +260,6 @@ function TOPSISAlgorithmPanel({
         </View>
       </View>
 
-      {/* ══ Step 2: Weighted contributions ══ */}
       <View style={algoStyles.stepBlock}>
         <Text style={algoStyles.stepTitle}>② Weighted Contribution per Criterion</Text>
         <Text style={algoStyles.stepDesc}>
@@ -272,7 +287,6 @@ function TOPSISAlgorithmPanel({
         </Text>
       </View>
 
-      {/* ══ Step 3: Closeness coefficient ══ */}
       <View style={algoStyles.stepBlock}>
         <Text style={algoStyles.stepTitle}>③ Final Match Score</Text>
         <Text style={algoStyles.stepDesc}>
@@ -281,7 +295,6 @@ function TOPSISAlgorithmPanel({
           <Text style={algoStyles.emphasis}>worst</Text>. The closer to ideal, the higher the score.
         </Text>
 
-        {/* PIS–NIS spectrum track */}
         <View style={algoStyles.spectrumWrap}>
           <Text style={algoStyles.spectrumEndLabel}>Worst</Text>
           <View style={algoStyles.spectrumTrack}>
@@ -317,7 +330,6 @@ const algoStyles = StyleSheet.create({
   stepDesc:         { fontFamily: Typography.bodyFont, fontSize: 11, color: Colors.textMuted, lineHeight: 16, marginBottom: 6 },
   emphasis:         { fontFamily: Typography.bodyMedium, color: Colors.textSecondary },
 
-  // Step 1 — weights
   weightGrid:       { gap: 4 },
   weightRow:        { flexDirection: 'row', alignItems: 'center', gap: 6 },
   weightEmoji:      { fontSize: 12, width: 18 },
@@ -326,7 +338,6 @@ const algoStyles = StyleSheet.create({
   pip:              { width: 8, height: 8, borderRadius: 2, backgroundColor: Colors.border },
   weightNum:        { fontFamily: Typography.bodySemiBold, fontSize: 11, width: 24, textAlign: 'right' },
 
-  // Step 2 — contributions
   contribRow:       { flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 2 },
   contribEmoji:     { fontSize: 12, width: 18 },
   contribTrack:     {
@@ -337,7 +348,6 @@ const algoStyles = StyleSheet.create({
   contribNum:       { fontFamily: Typography.bodyMedium, fontSize: 10, width: 36, textAlign: 'right' },
   contribNote:      { fontFamily: Typography.bodyFont, fontSize: 9, color: Colors.textMuted, marginTop: 4, fontStyle: 'italic' },
 
-  // Step 3 — spectrum
   spectrumWrap:     { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   spectrumEndLabel: { fontFamily: Typography.bodyFont, fontSize: 9, color: Colors.textMuted, flexShrink: 0 },
   spectrumTrack:    {
@@ -357,7 +367,7 @@ const algoStyles = StyleSheet.create({
 })
 
 // ---------------------------------------------------------------------------
-// AI summary  (enhanced to include review count signal)
+// AI summary
 // ---------------------------------------------------------------------------
 async function generateSummary(results: RankedSite[], weights: CriteriaWeights): Promise<string> {
   const prioritized = CRITERIA_KEYS.slice().sort((a, b) => weights[b] - weights[a])
@@ -422,6 +432,39 @@ function fallbackSummary(results: RankedSite[], weights: CriteriaWeights): strin
 }
 
 // ---------------------------------------------------------------------------
+// Progress indicator for criteria step
+// ---------------------------------------------------------------------------
+function CriteriaProgress({ weights }: { weights: CriteriaWeights }) {
+  const rated = CRITERIA_KEYS.filter((k) => weights[k] > 0).length
+  const total = CRITERIA_KEYS.length
+  const allDone = rated === total
+
+  return (
+    <View style={progStyles.container}>
+      <View style={progStyles.track}>
+        <View style={[progStyles.fill, { flex: rated / total }, allDone && progStyles.fillDone]} />
+        <View style={{ flex: 1 - rated / total }} />
+      </View>
+      <Text style={[progStyles.label, allDone && progStyles.labelDone]}>
+        {allDone ? '✓ All rated — ready to find your matches!' : `${rated} of ${total} rated`}
+      </Text>
+    </View>
+  )
+}
+
+const progStyles = StyleSheet.create({
+  container: { gap: 6 },
+  track: {
+    height: 4, borderRadius: 2,
+    backgroundColor: Colors.border, flexDirection: 'row', overflow: 'hidden',
+  },
+  fill: { height: 4, borderRadius: 2, backgroundColor: Colors.primary + '70' },
+  fillDone: { backgroundColor: '#1A7A4A' },
+  label: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted },
+  labelDone: { color: '#1A7A4A', fontFamily: Typography.bodyMedium },
+})
+
+// ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
 export default function RecommendScreen() {
@@ -429,30 +472,58 @@ export default function RecommendScreen() {
 
   const [step,           setStep]           = useState<Step>('criteria')
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
-  const [weights,        setWeights]        = useState<CriteriaWeights>({
-    attraction: 3, accessibility: 3, amenities: 3,
-    availablePackages: 3, activities: 3, ancillaryServices: 3,
+
+  // All weights start at 0 — no defaults, user must actively choose
+  const [weights, setWeights] = useState<CriteriaWeights>({
+    attraction: 0, accessibility: 0, amenities: 0,
+    availablePackages: 0, activities: 0, ancillaryServices: 0,
   })
+
   const [results,        setResults]        = useState<RankedSite[]>([])
   const [summary,        setSummary]        = useState('')
   const [loading,        setLoading]        = useState(false)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [error,          setError]          = useState<string | null>(null)
-  // which result card has its breakdown expanded
   const [expandedId,          setExpandedId]          = useState<string | number | null>(null)
-  // which result card has the TOPSIS algorithm panel expanded
   const [algorithmExpandedId, setAlgorithmExpandedId] = useState<string | number | null>(null)
 
-  // ── Apply preset  (Feature #3) ───────────────────────────────────────────
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [filterScope,        setFilterScope]        = useState<FilterScope>('all')
+  const [selectedMunicipality, setSelectedMunicipality] = useState<string | null>(null)
+  const [showMunicipalityPicker, setShowMunicipalityPicker] = useState(false)
+
+  // How many criteria have been rated
+  const ratedCount = CRITERIA_KEYS.filter((k) => weights[k] > 0).length
+  const allRated   = ratedCount === CRITERIA_KEYS.length
+
+  // ── Apply preset ─────────────────────────────────────────────────────────
   function applyPreset(index: number) {
     setSelectedPreset(index)
     setWeights(PRESETS[index].weights)
+  }
+
+  // ── Reset to blank ───────────────────────────────────────────────────────
+  function resetWeights() {
+    setSelectedPreset(null)
+    setWeights({
+      attraction: 0, accessibility: 0, amenities: 0,
+      availablePackages: 0, activities: 0, ancillaryServices: 0,
+    })
   }
 
   // ── Run TOPSIS ───────────────────────────────────────────────────────────
   async function handleRunTOPSIS() {
     setLoading(true)
     setError(null)
+    // Use weight of 1 for any unset criteria (treat as neutral)
+    const effectiveWeights: CriteriaWeights = {
+      attraction:        weights.attraction        || 1,
+      accessibility:     weights.accessibility     || 1,
+      amenities:         weights.amenities         || 1,
+      availablePackages: weights.availablePackages || 1,
+      activities:        weights.activities        || 1,
+      ancillaryServices: weights.ancillaryServices || 1,
+    }
     try {
       const landmarks = await fetchLandmarksForTOPSIS()
       if (landmarks.length === 0) {
@@ -460,11 +531,34 @@ export default function RecommendScreen() {
         setLoading(false)
         return
       }
-      const ranked = runTOPSIS(landmarks, weights, 10)
+
+      // ── Apply scope filter ───────────────────────────────────────────────
+      let filtered = landmarks
+      if (filterScope === 'popular') {
+        filtered = landmarks.filter((l: any) => l.is_popular === true || l.isPopular === true)
+      } else if (filterScope === 'municipality' && selectedMunicipality) {
+        filtered = landmarks.filter((l: any) =>
+          (l.city ?? '').trim().toLowerCase() === selectedMunicipality.trim().toLowerCase()
+        )
+      }
+
+      if (filtered.length === 0) {
+        const scopeLabel =
+          filterScope === 'popular'
+            ? 'popular destinations'
+            : filterScope === 'municipality' && selectedMunicipality
+            ? selectedMunicipality
+            : 'the selected filter'
+        setError(`No destinations found for ${scopeLabel}. Try a different filter.`)
+        setLoading(false)
+        return
+      }
+
+      const ranked = runTOPSIS(filtered, effectiveWeights, 10)
       setResults(ranked)
       setStep('results')
       setSummaryLoading(true)
-      generateSummary(ranked, weights).then((text) => {
+      generateSummary(ranked, effectiveWeights).then((text) => {
         setSummary(text)
         setSummaryLoading(false)
       })
@@ -491,13 +585,110 @@ export default function RecommendScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.stepSub}>
-          Choose a travel style below, or set your own priorities manually.
-        </Text>
 
-        {/* ── Preset profiles  (Feature #3) ── */}
-        <View style={styles.sectionLabel}>
-          <Text style={styles.sectionLabelTxt}>QUICK PROFILES</Text>
+        {/* ── Hero onboarding banner ── */}
+        <View style={styles.heroBanner}>
+          <Text style={styles.heroTitle}>Find Your Perfect Destination</Text>
+          <Text style={styles.heroBody}>
+            Tell us what matters most to you — we'll rank every destination in Albay to find your ideal match using the 6A Tourism Framework.
+          </Text>
+          <View style={styles.heroSteps}>
+            <View style={styles.heroStep}>
+              <View style={styles.heroStepNum}><Text style={styles.heroStepNumTxt}>1</Text></View>
+              <Text style={styles.heroStepTxt}>Pick a travel style or rate each factor yourself</Text>
+            </View>
+            <View style={styles.heroStep}>
+              <View style={styles.heroStepNum}><Text style={styles.heroStepNumTxt}>2</Text></View>
+              <Text style={styles.heroStepTxt}>We run the algorithm and surface your top 10</Text>
+            </View>
+            <View style={styles.heroStep}>
+              <View style={styles.heroStepNum}><Text style={styles.heroStepNumTxt}>3</Text></View>
+              <Text style={styles.heroStepTxt}>Explore results with scores, reviews & directions</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Filter scope ── */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabelTxt}>FILTER DESTINATIONS</Text>
+          <Text style={styles.sectionSub}>Narrow down which destinations to rank</Text>
+        </View>
+
+        <View style={filterStyles.scopeRow}>
+          {([
+            { scope: 'all'          as FilterScope, label: '🌏 All',       sub: 'All destinations' },
+            { scope: 'popular'      as FilterScope, label: '⭐ Popular',    sub: 'Marked as popular' },
+            { scope: 'municipality' as FilterScope, label: '📍 By City',   sub: 'Pick a municipality' },
+          ] as { scope: FilterScope; label: string; sub: string }[]).map(({ scope, label, sub }) => (
+            <TouchableOpacity
+              key={scope}
+              style={[filterStyles.scopeBtn, filterScope === scope && filterStyles.scopeBtnActive]}
+              onPress={() => {
+                setFilterScope(scope)
+                if (scope !== 'municipality') setShowMunicipalityPicker(false)
+                else setShowMunicipalityPicker(true)
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[filterStyles.scopeLabel, filterScope === scope && filterStyles.scopeLabelActive]}>
+                {label}
+              </Text>
+              <Text style={filterStyles.scopeSub}>{sub}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Municipality picker */}
+        {filterScope === 'municipality' && (
+          <View style={filterStyles.municipalityWrap}>
+            <TouchableOpacity
+              style={filterStyles.municipalityToggle}
+              onPress={() => setShowMunicipalityPicker((v) => !v)}
+              activeOpacity={0.8}
+            >
+              <Text style={filterStyles.municipalityToggleTxt}>
+                {selectedMunicipality ? `📍 ${selectedMunicipality}` : '📍 Select a municipality…'}
+              </Text>
+              <Text style={filterStyles.municipalityChevron}>
+                {showMunicipalityPicker ? '▲' : '▼'}
+              </Text>
+            </TouchableOpacity>
+
+            {showMunicipalityPicker && (
+              <View style={filterStyles.municipalityList}>
+                {MUNICIPALITIES.map((city) => (
+                  <TouchableOpacity
+                    key={city}
+                    style={[
+                      filterStyles.municipalityItem,
+                      selectedMunicipality === city && filterStyles.municipalityItemActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedMunicipality(city)
+                      setShowMunicipalityPicker(false)
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[
+                      filterStyles.municipalityItemTxt,
+                      selectedMunicipality === city && filterStyles.municipalityItemTxtActive,
+                    ]}>
+                      {city}
+                    </Text>
+                    {selectedMunicipality === city && (
+                      <Text style={filterStyles.municipalityCheck}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── Preset profiles ── */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabelTxt}>QUICK START — CHOOSE YOUR TRAVEL STYLE</Text>
+          <Text style={styles.sectionSub}>Don't want to set each factor? Pick a profile that fits you.</Text>
         </View>
 
         <ScrollView
@@ -512,6 +703,11 @@ export default function RecommendScreen() {
               onPress={() => applyPreset(i)}
               activeOpacity={0.8}
             >
+              {selectedPreset === i && (
+                <View style={styles.presetCheckmark}>
+                  <Text style={styles.presetCheckmarkTxt}>✓</Text>
+                </View>
+              )}
               <Text style={styles.presetEmoji}>{preset.emoji}</Text>
               <Text style={[styles.presetLabel, selectedPreset === i && styles.presetLabelActive]}>
                 {preset.label}
@@ -521,16 +717,40 @@ export default function RecommendScreen() {
           ))}
         </ScrollView>
 
-        {/* ── Manual criteria ── */}
-        <View style={styles.sectionLabel}>
-          <Text style={styles.sectionLabelTxt}>FINE-TUNE YOUR PRIORITIES</Text>
+        {/* ── Divider with "or" ── */}
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerTxt}>or fine-tune below</Text>
+          <View style={styles.dividerLine} />
         </View>
+
+        {/* ── Section: manual criteria ── */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionLabelTxt}>RATE EACH FACTOR — 1 (Low) to 5 (High)</Text>
+              <Text style={styles.sectionSub}>How much does this matter for your ideal trip?</Text>
+            </View>
+            {selectedPreset !== null || ratedCount > 0 ? (
+              <TouchableOpacity onPress={resetWeights} style={styles.clearBtn}>
+                <Text style={styles.clearBtnTxt}>Clear all</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Progress bar */}
+        <CriteriaProgress weights={weights} />
 
         {CRITERIA_KEYS.map((key) => {
           const meta  = CRITERIA_META[key]
           const color = TINTS[key] ?? Colors.primary
+          const isRated = weights[key] > 0
           return (
-            <View key={key} style={styles.criteriaRow}>
+            <View
+              key={key}
+              style={[styles.criteriaRow, !isRated && styles.criteriaRowUnset]}
+            >
               <View style={styles.criteriaLabel}>
                 <View style={[styles.criteriaIconBox, { backgroundColor: color + '18' }]}>
                   <Text style={styles.criteriaEmoji}>{meta.emoji}</Text>
@@ -539,12 +759,16 @@ export default function RecommendScreen() {
                   <Text style={styles.criteriaName}>{meta.label}</Text>
                   <Text style={styles.criteriaDesc}>{meta.description}</Text>
                 </View>
-                <Text style={[styles.criteriaValue, { color }]}>{weights[key]}/5</Text>
+                {isRated ? (
+                  <Text style={[styles.criteriaValue, { color }]}>{weights[key]}/5</Text>
+                ) : (
+                  <Text style={styles.criteriaValueUnset}>—</Text>
+                )}
               </View>
               <WeightPicker
                 value={weights[key]}
                 onChange={(v) => {
-                  setSelectedPreset(null)   // manual change deselects preset
+                  setSelectedPreset(null)
                   setWeights((prev) => ({ ...prev, [key]: v }))
                 }}
                 color={color}
@@ -559,18 +783,38 @@ export default function RecommendScreen() {
           </View>
         )}
 
+        {/* CTA — disabled hint when nothing is rated */}
+        {!allRated && ratedCount === 0 && (
+          <View style={styles.ctaHint}>
+            <Text style={styles.ctaHintTxt}>
+              💡 Pick a travel style above or rate at least one factor to get started
+            </Text>
+          </View>
+        )}
+
         <TouchableOpacity
-          style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+          style={[
+            styles.primaryBtn,
+            (loading || ratedCount === 0) && styles.primaryBtnDisabled,
+          ]}
           onPress={handleRunTOPSIS}
-          disabled={loading}
+          disabled={loading || ratedCount === 0}
           activeOpacity={0.85}
         >
           {loading
             ? <ActivityIndicator color="#fff" size="small" />
-            : <Text style={styles.primaryBtnTxt}>✦  Find My Top 10</Text>}
+            : (
+              <View style={styles.primaryBtnInner}>
+                <Text style={styles.primaryBtnTxt}>Find My Top 10</Text>
+                {!allRated && ratedCount > 0 && (
+                  <Text style={styles.primaryBtnSub}>Unrated factors treated as neutral</Text>
+                )}
+              </View>
+            )
+          }
         </TouchableOpacity>
 
-        <View style={{ height: 32 }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     )
   }
@@ -596,7 +840,7 @@ export default function RecommendScreen() {
           )}
         </View>
 
-        {/* Result cards  (Features #1, #2, #6) */}
+        {/* Result cards */}
         {results.map((site) => {
           const isExpanded = expandedId === site.id
           const matchPct   = Math.round(site.topsisScore * 100)
@@ -607,7 +851,7 @@ export default function RecommendScreen() {
           return (
             <View key={site.id} style={styles.resultCard}>
 
-              {/* ── Hero thumbnail  (Feature #1) ── */}
+              {/* ── Hero thumbnail ── */}
               {hasImg ? (
                 <Image
                   source={{ uri: (site as any).imageUrl }}
@@ -641,7 +885,7 @@ export default function RecommendScreen() {
                   </View>
                 </View>
 
-                {/* ── Tourist consensus badge  (Feature #6) ── */}
+                {/* ── Tourist consensus badge ── */}
                 {reviewCount > 0 && avgReview ? (
                   <View style={styles.consensusBadge}>
                     <Text style={styles.consensusTxt}>
@@ -659,7 +903,7 @@ export default function RecommendScreen() {
                   </Text>
                 ) : null}
 
-                {/* ── Per-criterion breakdown toggle  (Feature #2) ── */}
+                {/* ── Per-criterion breakdown toggle ── */}
                 <TouchableOpacity
                   style={styles.breakdownToggle}
                   onPress={() => setExpandedId(isExpanded ? null : site.id)}
@@ -722,7 +966,16 @@ export default function RecommendScreen() {
                     style={styles.directionsBtn}
                     onPress={() => {
                       setPendingDirectionsSiteId(String(site.id))
-                      router.push('/(tabs)/')
+                      // FIX (Issue 5 & 6): router.back() resumes the already-mounted
+                      // map tab so userLocation is still live when the pending
+                      // directions effect fires. router.push('/(tabs)/') would
+                      // remount the map fresh — userLocation starts null and the
+                      // route silently fails.
+                      if (router.canGoBack()) {
+                        router.back()
+                      } else {
+                        router.replace('/(tabs)/')
+                      }
                     }}
                     activeOpacity={0.75}
                   >
@@ -767,10 +1020,18 @@ export default function RecommendScreen() {
 
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>
-            {step === 'criteria' ? 'Set Your Priorities' : 'Your Top 10 Picks'}
+            {step === 'criteria' ? 'Recommend' : 'Your Top 10 Picks'}
           </Text>
           {step === 'results' && (
-            <Text style={styles.headerSub}>Ranked by TOPSIS · Shaped by tourist consensus</Text>
+            <Text style={styles.headerSub}>
+              Ranked by TOPSIS · {
+                filterScope === 'popular'
+                  ? 'Popular destinations only'
+                  : filterScope === 'municipality' && selectedMunicipality
+                  ? selectedMunicipality
+                  : 'All destinations'
+              }
+            </Text>
           )}
         </View>
 
@@ -783,6 +1044,10 @@ export default function RecommendScreen() {
               setSummary('')
               setError(null)
               setExpandedId(null)
+              resetWeights()
+              setFilterScope('all')
+              setSelectedMunicipality(null)
+              setShowMunicipalityPicker(false)
             }}
             activeOpacity={0.75}
           >
@@ -840,16 +1105,83 @@ const styles = StyleSheet.create({
   content: { flex: 1, backgroundColor: Colors.bg },
   scrollContent: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, gap: Spacing.md },
 
-  stepSub: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.textMuted, lineHeight: 19 },
+  // ── Hero onboarding banner ──
+  heroBanner: {
+    backgroundColor: Colors.primary + '0C',
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.primary + '20',
+    gap: Spacing.sm,
+  },
+  heroTitle: {
+    fontFamily: Typography.displayFont, fontSize: 18,
+    color: Colors.textPrimary, letterSpacing: -0.3,
+  },
+  heroBody: {
+    fontFamily: Typography.bodyFont, fontSize: 13,
+    color: Colors.textSecondary, lineHeight: 19,
+  },
+  heroSteps: { gap: 6, marginTop: 2 },
+  heroStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  heroStepNum: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 1, flexShrink: 0,
+  },
+  heroStepNumTxt: {
+    fontFamily: Typography.bodySemiBold, fontSize: 11,
+    color: '#fff',
+  },
+  heroStepTxt: {
+    fontFamily: Typography.bodyFont, fontSize: 12,
+    color: Colors.textSecondary, lineHeight: 18, flex: 1,
+  },
 
-  // Section labels
-  sectionLabel: { marginTop: Spacing.xs },
+  // ── Section labels ──
+  sectionHeader: { gap: 3 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center' },
   sectionLabelTxt: {
     fontFamily: Typography.bodySemiBold, fontSize: 10,
     color: Colors.textMuted, letterSpacing: 1.2,
   },
+  sectionSub: {
+    fontFamily: Typography.bodyFont, fontSize: 12,
+    color: Colors.textMuted,
+  },
 
-  // Preset cards  (Feature #3)
+  // ── Divider ──
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerTxt: {
+    fontFamily: Typography.bodyFont, fontSize: 12,
+    color: Colors.textMuted, flexShrink: 0,
+  },
+
+  // ── Clear button ──
+  clearBtn: {
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: Radius.md,
+    borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: Colors.bg,
+  },
+  clearBtnTxt: { fontFamily: Typography.bodyMedium, fontSize: 12, color: Colors.textMuted },
+
+  // ── CTA hint ──
+  ctaHint: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    borderWidth: 1, borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  ctaHintTxt: {
+    fontFamily: Typography.bodyFont, fontSize: 13,
+    color: Colors.textMuted, textAlign: 'center', lineHeight: 18,
+  },
+
+  // ── Preset cards ──
   presetRow: { gap: 10, paddingBottom: 4, paddingRight: Spacing.lg },
   presetCard: {
     width: 140,
@@ -874,12 +1206,26 @@ const styles = StyleSheet.create({
     fontFamily: Typography.bodyFont, fontSize: 11,
     color: Colors.textMuted, lineHeight: 15,
   },
+  presetCheckmark: {
+    position: 'absolute', top: 8, right: 8,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  presetCheckmarkTxt: {
+    fontFamily: Typography.bodySemiBold, fontSize: 10, color: '#fff',
+  },
 
-  // Criteria
+  // ── Criteria rows ──
   criteriaRow: {
     gap: Spacing.sm, backgroundColor: Colors.bgCard,
     borderRadius: Radius.lg, padding: Spacing.md,
     borderWidth: 1, borderColor: Colors.border,
+  },
+  criteriaRowUnset: {
+    borderColor: Colors.border,
+    borderStyle: 'dashed',
+    opacity: 0.85,
   },
   criteriaLabel: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   criteriaIconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
@@ -887,25 +1233,32 @@ const styles = StyleSheet.create({
   criteriaName: { fontFamily: Typography.bodyMedium, fontSize: 14, color: Colors.textPrimary },
   criteriaDesc: { fontFamily: Typography.bodyFont, fontSize: 11, color: Colors.textMuted, lineHeight: 15 },
   criteriaValue: { fontFamily: Typography.bodySemiBold, fontSize: 14 },
+  criteriaValueUnset: {
+    fontFamily: Typography.bodySemiBold, fontSize: 14,
+    color: Colors.border,
+  },
 
-  // Error
+  // ── Error ──
   errorBox: {
     backgroundColor: Colors.errorLight, borderRadius: Radius.md,
     padding: Spacing.sm, borderWidth: 1, borderColor: '#F5C6C1',
   },
   errorTxt: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.error, textAlign: 'center' },
 
-  // CTA
+  // ── CTA button ──
   primaryBtn: {
-    height: 52, backgroundColor: Colors.primary,
+    minHeight: 52, backgroundColor: Colors.primary,
     borderRadius: Radius.lg, alignItems: 'center', justifyContent: 'center',
     shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 10, elevation: 5, marginTop: Spacing.sm,
+    paddingVertical: 10,
   },
-  primaryBtnDisabled: { opacity: 0.65 },
+  primaryBtnDisabled: { opacity: 0.4 },
+  primaryBtnInner: { alignItems: 'center', gap: 2 },
   primaryBtnTxt: { fontFamily: Typography.bodySemiBold, fontSize: 16, color: Colors.textInverse, letterSpacing: 0.3 },
+  primaryBtnSub: { fontFamily: Typography.bodyFont, fontSize: 11, color: Colors.textInverse + 'BB' },
 
-  // AI summary
+  // ── AI summary ──
   summaryBox: {
     backgroundColor: Colors.primary + '0E', borderRadius: Radius.lg,
     padding: Spacing.md, borderWidth: 1.5, borderColor: Colors.primary + '25',
@@ -917,15 +1270,13 @@ const styles = StyleSheet.create({
   summaryGenerating: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.textMuted },
   summaryTxt: { fontFamily: Typography.bodyFont, fontSize: 13, color: Colors.textSecondary, lineHeight: 20 },
 
-  // Result cards  (Features #1, #2, #6)
+  // ── Result cards ──
   resultCard: {
     backgroundColor: Colors.bgCard, borderRadius: Radius.lg,
     borderWidth: 1, borderColor: Colors.border,
     overflow: 'hidden',
   },
-  resultImage: {           // Feature #1
-    width: '100%', height: 130,
-  },
+  resultImage: { width: '100%', height: 130 },
   resultImagePlaceholder: {
     width: '100%', height: 130,
     backgroundColor: Colors.bg,
@@ -940,7 +1291,6 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary, flex: 1,
   },
 
-  // Match chip — colour-coded by score
   scoreChip: {
     backgroundColor: Colors.primary + '15', borderRadius: Radius.full,
     paddingHorizontal: 8, paddingVertical: 3,
@@ -951,7 +1301,6 @@ const styles = StyleSheet.create({
   scoreTxtHigh:  { color: '#1A7A4A' },
   scoreTxtLow:   { color: Colors.error },
 
-  // Tourist consensus  (Feature #6)
   consensusBadge: {
     alignSelf: 'flex-start',
     backgroundColor: '#8B691415',
@@ -966,7 +1315,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary, lineHeight: 17,
   },
 
-  // Criterion breakdown  (Feature #2)
   breakdownToggle: { marginTop: 2 },
   breakdownToggleTxt: {
     fontFamily: Typography.bodyMedium, fontSize: 12, color: Colors.primary,
@@ -987,7 +1335,6 @@ const styles = StyleSheet.create({
     color: '#8B6914', marginTop: 6, lineHeight: 16,
   },
 
-  // Algorithm panel toggle
   algoToggle: {
     marginTop: 8,
     paddingTop: 8,
@@ -1008,7 +1355,6 @@ const styles = StyleSheet.create({
   },
   directionsBtnTxt: { fontFamily: Typography.bodyMedium, fontSize: 12, color: Colors.primary },
 
-  // Rate results button
   rateBtn: {
     height: 52,
     backgroundColor: Colors.primary,
@@ -1023,4 +1369,100 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   rateBtnTxt: { fontFamily: Typography.bodySemiBold, fontSize: 16, color: Colors.textInverse, letterSpacing: 0.3 },
+})
+
+// ---------------------------------------------------------------------------
+// Filter styles
+// ---------------------------------------------------------------------------
+const filterStyles = StyleSheet.create({
+  scopeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scopeBtn: {
+    flex: 1,
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    padding: Spacing.sm,
+    gap: 2,
+    alignItems: 'center',
+  },
+  scopeBtnActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + '0A',
+  },
+  scopeLabel: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 13,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  scopeLabelActive: {
+    color: Colors.primary,
+  },
+  scopeSub: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+
+  municipalityWrap: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+    backgroundColor: Colors.bgCard,
+  },
+  municipalityToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  municipalityToggleTxt: {
+    flex: 1,
+    fontFamily: Typography.bodyMedium,
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  municipalityChevron: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  municipalityList: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  municipalityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border + '60',
+  },
+  municipalityItemActive: {
+    backgroundColor: Colors.primary + '0A',
+  },
+  municipalityItemTxt: {
+    flex: 1,
+    fontFamily: Typography.bodyFont,
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  municipalityItemTxtActive: {
+    fontFamily: Typography.bodyMedium,
+    color: Colors.primary,
+  },
+  municipalityCheck: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 14,
+    color: Colors.primary,
+  },
 })

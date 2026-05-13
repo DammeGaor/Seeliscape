@@ -1,3 +1,4 @@
+import 'buffer';
 import { useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native'
 import { Slot, router, useSegments } from 'expo-router'
@@ -9,6 +10,7 @@ import { Colors, Typography } from '@/constants/theme'
 // ---------------------------------------------------------------------------
 function SplashScreen({ visible }: { visible: boolean }) {
   const opacity = useRef(new Animated.Value(1)).current
+  const hasHidden = useRef(false)
   const dotScale1 = useRef(new Animated.Value(0.6)).current
   const dotScale2 = useRef(new Animated.Value(0.6)).current
   const dotScale3 = useRef(new Animated.Value(0.6)).current
@@ -21,7 +23,7 @@ function SplashScreen({ visible }: { visible: boolean }) {
         duration: 400,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
-      }).start()
+      }).start(() => { hasHidden.current = true })
     }
   }, [visible])
 
@@ -55,7 +57,7 @@ function SplashScreen({ visible }: { visible: boolean }) {
     return () => { a1.stop(); a2.stop(); a3.stop() }
   }, [])
 
-  if (!visible && opacity.__getValue() === 0) return null
+  if (!visible && hasHidden.current) return null
 
   return (
     <Animated.View style={[styles.splash, { opacity }]} pointerEvents="none">
@@ -82,14 +84,16 @@ function SplashScreen({ visible }: { visible: boolean }) {
 // ---------------------------------------------------------------------------
 function AuthGuard() {
   const { session, loading, isAdmin } = useAuthStore()
-  const segments = useSegments()
+  const segments = useSegments() as string[]
 
   useEffect(() => {
     if (loading) return
 
-    const inAuthGroup  = segments[0] === '(auth)'
-    const inTabsGroup  = segments[0] === '(tabs)'
-    const inAdminGroup = segments[0] === '(admin)'
+    const inAuthGroup    = segments[0] === '(auth)'
+    const inTabsGroup    = segments[0] === '(tabs)'
+    const inAdminGroup   = segments[0] === '(admin)'
+    const inOnboarding   = segments[0] === 'onboarding'   // root-level route
+    const inSiteGroup = segments[0] === '(tabs)' && segments[1] === 'site'
 
     if (!session) {
       // Not logged in — send to login
@@ -97,9 +101,21 @@ function AuthGuard() {
       return
     }
 
-    // Logged in — always default to map unless already settled there
-    if (inAuthGroup || (!inTabsGroup && !inAdminGroup)) {
-      router.replace('/(tabs)/')
+    // Already on onboarding — let it render, don't redirect
+    if (inOnboarding) return
+
+    // Site detail page — let it render
+    if (inSiteGroup) return
+
+    // Just came from login (or any auth screen) → show onboarding
+    if (inAuthGroup) {
+      router.replace('/onboarding')
+      return
+    }
+
+    // Not in any known group → send to onboarding
+    if (!inTabsGroup && !inAdminGroup && !inSiteGroup) {
+      router.replace('/onboarding')
       return
     }
 

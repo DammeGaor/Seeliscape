@@ -13,11 +13,11 @@ import {
   ViroARScene,
   ViroARSceneNavigator,
   Viro3DObject,
+  ViroImage,
   ViroAmbientLight,
   ViroDirectionalLight,
   ViroNode,
-  ViroText,
-  ViroFlexView,
+  ViroSphere,
 } from '@reactvision/react-viro'
 import { ARObject } from '@/lib/ar.types'
 import { fetchARObjects } from '@/lib/ar.service'
@@ -73,29 +73,36 @@ function ARScene({ sceneNavigator }: { sceneNavigator: { viroAppProps: SceneProp
 
       {/* Render every placed object at its locked world position */}
       {placedObjects.map(({ obj, position }) => (
-        <ViroNode key={obj.id} position={position}>
-          <Viro3DObject
-            source={{ uri: obj.modelUrl }}
-            type="GLB"
-            scale={[obj.scale, obj.scale, obj.scale]}
+        <ViroNode key={obj.id} position={position} transformBehaviors={['billboardY']}>
+          {/* Invisible sphere — generous tap hitbox so the user doesn't
+              have to precisely tap the model geometry.
+              onClick is always registered; the overlay only intercepts taps
+              when queueLength > 0, but we also handle selection from the
+              overlay itself via performARHitTestWithPoint so both paths work. */}
+          <ViroSphere
+            radius={obj.scale * 200}
             onClick={() => onSelectObject(obj)}
-            animation={{ name: 'idle', run: true, loop: true }}
+            materials={[]}
+            opacity={0}
           />
-          <ViroFlexView
-            style={styles.labelContainer}
-            position={[0, obj.scale * 1.5 + 0.3, 0]}
-            width={1.2}
-            height={0.35}
-            onClick={() => onSelectObject(obj)}
-          >
-            <ViroText
-              text={obj.name}
-              style={styles.labelText}
-              width={1.2}
-              height={0.35}
-              textClipMode="None"
+          {obj.imageUrl ? (
+            // Flat image card — rendered as a billboard plane.
+            // Width/height ratio derived from the image; scale controls real-world size in metres.
+            <ViroImage
+              source={{ uri: obj.imageUrl }}
+              width={obj.scale * 2}
+              height={obj.scale * 2.8}
+              onClick={() => onSelectObject(obj)}
+              resizeMode="ScaleToFit"
             />
-          </ViroFlexView>
+          ) : (
+            <Viro3DObject
+              source={{ uri: obj.modelUrl }}
+              type="GLB"
+              scale={[obj.scale, obj.scale, obj.scale]}
+              onClick={() => onSelectObject(obj)}
+            />
+          )}
         </ViroNode>
       ))}
     </ViroARScene>
@@ -137,6 +144,37 @@ function ObjectInfoPanel({ obj, onClose }: { obj: ARObject; onClose: () => void 
       {obj.description ? (
         <Text style={styles.infoPanelDesc}>{obj.description}</Text>
       ) : null}
+    </Animated.View>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Placed toast — brief confirmation pill when an object is locked into the scene
+// ---------------------------------------------------------------------------
+
+function PlacedToast({ obj, onDone }: { obj: ARObject; onDone: () => void }) {
+  const scale   = useRef(new Animated.Value(0.6)).current
+  const opacity = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.sequence([
+      // Pop in
+      Animated.parallel([
+        Animated.spring(scale,   { toValue: 1,   useNativeDriver: true, tension: 180, friction: 12 }),
+        Animated.timing(opacity, { toValue: 1,   duration: 150, useNativeDriver: true }),
+      ]),
+      // Hold
+      Animated.delay(1400),
+      // Fade out
+      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start(onDone)
+  }, [])
+
+  return (
+    <Animated.View style={[styles.placedToast, { opacity, transform: [{ scale }] }]}>
+      <Text style={styles.placedToastCheck}>✓</Text>
+      <Text style={styles.placedToastTxt} numberOfLines={1}>{obj.name} placed</Text>
     </Animated.View>
   )
 }
@@ -196,6 +234,7 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState<string | null>(null)
   const [selectedObject, setSelectedObject] = useState<ARObject | null>(null)
+  const [placedToast, setPlacedToast]       = useState<ARObject | null>(null)
 
   // Queue of objects waiting to be placed (index into arObjects array)
   const [queueIndex, setQueueIndex]         = useState(0)
@@ -248,6 +287,7 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
       console.log('[ARView] ✅ handlePlaceObject: placing', obj.name, 'at', position)
       setPlacedObjects((prev) => [...prev, { obj, position }])
       setQueueIndex(idx + 1)
+      setPlacedToast(obj)
     },
     [], // stable — reads latest values via refs
   )
@@ -263,15 +303,20 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
     arSceneRef.current = ref
   }, [])
 
-  // Called by the native TouchableOpacity overlay on every tap.
-  // We fire a hit-test from screen centre; Viro maps it to world space.
-  const handleARTap = useCallback(async () => {
-    console.log('[ARView] 👆 handleARTap — queueLength:', queueIndexRef.current, 'sceneRef:', !!arSceneRef.current)
+  // Ref mirrors placedObjects so handleARTap can read them without
+  // needing placedObjects as a dep (which would re-create the callback).
+  const placedObjectsRef = useRef<PlacedObject[]>(placedObjects)
+  useEffect(() => { placedObjectsRef.current = placedObjects }, [placedObjects])
 
-    if (queueIndexRef.current >= arObjectsRef.current.length) {
-      console.log('[ARView] ⚠️ tap ignored — nothing left to place')
-      return
-    }
+  // Called by the native TouchableOpacity overlay on every tap.
+  // The overlay is ALWAYS rendered (full-screen, behind HUD) so it catches
+  // every tap regardless of queue state. We first check whether the tap
+  // lands near an already-placed object and select it if so. Otherwise,
+  // if there are objects still queued, we attempt a surface hit-test and place.
+  const handleARTap = useCallback(async (event: any) => {
+    const touchX = event?.nativeEvent?.locationX ?? 0
+    const touchY = event?.nativeEvent?.locationY ?? 0
+    console.log('[ARView] 👆 handleARTap — touch:', touchX, touchY, 'queueIndex:', queueIndexRef.current)
 
     if (!arSceneRef.current) {
       console.log('[ARView] ⚠️ tap ignored — scene ref not ready yet')
@@ -279,27 +324,80 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
     }
 
     try {
-      // Screen centre [0,0] in Viro's normalised coords
-      const results = await arSceneRef.current.performARHitTestWithRay([0, 0, -1])
-      console.log('[ARView] 🎯 hit test results:', JSON.stringify(results))
+      // --- Step 1: object selection via camera ray -------------------------
+      // performARHitTestWithPoint only detects real-world *surfaces*, so it
+      // returns nothing when the user taps a floating object in mid-air.
+      // Use getCameraOrientationAsync to cast a ray in the camera's forward
+      // direction and find the closest placed object in that cone — this works
+      // regardless of whether any surface is present behind the object.
+      const placed = placedObjectsRef.current
+      if (placed.length > 0) {
+        try {
+          const cameraInfo = await arSceneRef.current.getCameraOrientationAsync()
+          console.log('[ARView] 📷 camera orientation:', JSON.stringify(cameraInfo))
 
-      if (!results || results.length === 0) {
+          const camPos: [number, number, number] = cameraInfo.position
+          const fwd: [number, number, number]    = cameraInfo.forward
+
+          let closestObj: ARObject | null = null
+          let smallestAngle = Infinity
+
+          for (const { obj, position: objPos } of placed) {
+            const dx = objPos[0] - camPos[0]
+            const dy = objPos[1] - camPos[1]
+            const dz = objPos[2] - camPos[2]
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (dist === 0) continue
+
+            const dot   = (dx * fwd[0] + dy * fwd[1] + dz * fwd[2]) / dist
+            const angle = Math.acos(Math.min(1, Math.max(-1, dot)))
+
+            console.log(`[ARView] 📐 object "${obj.name}" angle=${(angle * 180 / Math.PI).toFixed(1)}° dist=${dist.toFixed(2)}m`)
+
+            // ~15° cone — wide enough to be usable, tight enough to avoid false hits
+            if (angle < 0.26 && angle < smallestAngle) {
+              smallestAngle = angle
+              closestObj = obj
+            }
+          }
+
+          if (closestObj) {
+            console.log('[ARView] ✅ selected object via ray:', closestObj.name)
+            handleSelectObject(closestObj)
+            return
+          }
+        } catch (rayErr) {
+          console.warn('[ARView] ⚠️ getCameraOrientationAsync failed, falling through to surface hit-test:', rayErr)
+        }
+      }
+
+      // --- Step 2: place on surface if queue is not empty ------------------
+      if (queueIndexRef.current >= arObjectsRef.current.length) {
+        console.log('[ARView] ℹ️ tap ignored — no object in crosshair and nothing left to place')
+        return
+      }
+
+      const hitResults = await arSceneRef.current.performARHitTestWithPoint(touchX, touchY)
+      console.log('[ARView] 🎯 surface hit test results:', JSON.stringify(hitResults))
+
+      if (!hitResults || hitResults.length === 0) {
         console.log('[ARView] ⚠️ no surface found — point camera at a textured flat surface')
         return
       }
 
+      // Prefer a confirmed plane; fall back to any intersection
       const hit =
-        results.find((r: any) =>
+        hitResults.find((r: any) =>
           r.type === 'ExistingPlaneUsingExtent' || r.type === 'ExistingPlane'
-        ) ?? results[0]
+        ) ?? hitResults[0]
 
       const position: [number, number, number] = hit.transform.position
       console.log('[ARView] ✅ placing at', position, 'type:', hit.type)
       handlePlaceObject(position)
     } catch (err) {
-      console.error('[ARView] ❌ hit test failed', err)
+      console.error('[ARView] ❌ tap handling failed', err)
     }
-  }, [handlePlaceObject])
+  }, [handlePlaceObject, handleSelectObject])
 
   const viroAppProps = useMemo<SceneProps>(
     () => ({
@@ -326,10 +424,10 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
         />
       )}
 
-      {/* Native tap overlay — sits above the AR view so taps are always
-          captured even when there are no 3D objects to click on yet.
-          Hidden once all objects are placed. */}
-      {!error && queueLength > 0 && (
+      {/* Native tap overlay — always rendered so both placement taps and
+          object-selection taps are routed through handleARTap. The handler
+          itself decides whether to place or select based on hit-test results. */}
+      {!error && (
         <TouchableOpacity
           style={styles.tapOverlay}
           activeOpacity={1}
@@ -377,6 +475,10 @@ export function ARView({ landmarkId, onClose }: ARViewProps) {
           placedCount={placedObjects.length}
           queueLength={queueLength}
         />
+      )}
+
+      {placedToast && (
+        <PlacedToast obj={placedToast} onDone={() => setPlacedToast(null)} />
       )}
 
       {selectedObject && (
@@ -536,19 +638,30 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
   },
-  labelContainer: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 6,
-    borderRadius: 6,
+  placedToast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '42%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: Radius.full,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
-  labelText: {
+  placedToastCheck: {
+    fontSize: 15,
+    color: '#4ADE80',
+    fontWeight: '700',
+  },
+  placedToastTxt: {
     fontFamily: Typography.bodySemiBold,
-    fontSize: 12,
-    color: '#ffffff',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-  } as any,
+    fontSize: 14,
+    color: '#fff',
+    maxWidth: 200,
+  },
+
 })

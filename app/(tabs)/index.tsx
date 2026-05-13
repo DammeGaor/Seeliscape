@@ -18,7 +18,6 @@ import MapboxGL from '@rnmapbox/maps'
 import type GeoJSON from 'geojson'
 import * as Location from 'expo-location'
 import { useMapStore } from '@/store/map.store'
-import { SiteSheet } from '@/components/map/SiteSheet'
 import { signOut } from '@/lib/auth.service'
 import { InfoModal } from '@/components/map/InfoModal'
 import { router } from 'expo-router'
@@ -203,6 +202,22 @@ function IconRecommend({ size = 16, color = Colors.primary }: { size?: number; c
   )
 }
 
+// Question mark — help button
+function IconHelp({ size = 16, color = Colors.textSecondary }: { size?: number; color?: string }) {
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{
+        fontFamily: Typography.bodySemiBold,
+        fontSize: size * 0.78,
+        color,
+        lineHeight: size,
+        letterSpacing: 0,
+        includeFontPadding: false,
+      }}>?</Text>
+    </View>
+  )
+}
+
 // Lock icon — body + shackle
 function IconLock({ size = 14, color = '#fff' }: { size?: number; color?: string }) {
   const t     = Math.max(1.5, size * 0.14)
@@ -348,16 +363,19 @@ function PulsingUserMarker({ coordinate }: { coordinate: [number, number] }) {
 
 // ---------------------------------------------------------------------------
 // Custom marker component
+// isDimmed — true when a route is active and this site is not the destination
 // ---------------------------------------------------------------------------
 function SiteMarker({
   site,
   isUnlocked,
-  isSelected,
+  isDestination,
+  isDimmed,
   onPress,
 }: {
   site: TourismSite
   isUnlocked: boolean
-  isSelected: boolean
+  isDestination: boolean
+  isDimmed: boolean
   onPress: () => void
 }) {
   const config = CATEGORY_CONFIG[site.category]
@@ -367,36 +385,29 @@ function SiteMarker({
       coordinate={[site.coordinates.longitude, site.coordinates.latitude]}
       anchor={{ x: 0.5, y: 1 }}
     >
-      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.85}
+        style={{ opacity: isDimmed ? 0.3 : 1 }}
+      >
         <View style={[
           styles.marker,
-          isSelected && styles.markerSelected,
-          !isUnlocked && styles.markerLocked,
+          isDestination && styles.markerSelected,
+          isUnlocked && styles.markerVisited,
         ]}>
           {site.imageUrl ? (
-            <>
-              <Image
-                source={{ uri: site.imageUrl }}
-                style={[
-                  styles.markerImage,
-                  !isUnlocked && styles.markerImageLocked,
-                ]}
-                resizeMode="cover"
-              />
-              {!isUnlocked && (
-                <View style={styles.markerLockOverlay}>
-                  <IconLock size={13} color="#fff" />
-                </View>
-              )}
-            </>
+            <Image
+              source={{ uri: site.imageUrl }}
+              style={styles.markerImage}
+              resizeMode="cover"
+            />
           ) : (
-            // Category initial letter — clean typographic marker
-            <Text style={[styles.markerLetter, !isUnlocked && { opacity: 0.5 }]}>
+            <Text style={styles.markerLetter}>
               {site.category.charAt(0).toUpperCase()}
             </Text>
           )}
         </View>
-        <View style={[styles.markerTail, isSelected && styles.markerTailSelected]} />
+        <View style={[styles.markerTail, isDestination && styles.markerTailSelected]} />
       </TouchableOpacity>
     </MapboxGL.MarkerView>
   )
@@ -407,12 +418,10 @@ function SiteMarker({
 // ---------------------------------------------------------------------------
 function SearchResult({ site, onPress }: { site: TourismSite; onPress: () => void }) {
   const config = CATEGORY_CONFIG[site.category]
-  // Derive a category color from tint or fall back to primary
   const dotColor = (config as any).color ?? Colors.primary
 
   return (
     <TouchableOpacity style={styles.searchResult} onPress={onPress} activeOpacity={0.7}>
-      {/* Category initial in a small badge */}
       <View style={[styles.searchResultBadge, { backgroundColor: dotColor + '18', borderColor: dotColor + '40' }]}>
         <Text style={[styles.searchResultBadgeTxt, { color: dotColor }]}>
           {site.category.charAt(0).toUpperCase()}
@@ -453,7 +462,7 @@ function RouteInfoPill({
         <Text style={styles.routeDuration}>{formatDuration(route.durationSeconds)}</Text>
       </View>
 
-      {/* Profile switcher — text labels */}
+      {/* Profile switcher */}
       <View style={styles.profileRow}>
         {profiles.map(({ key, label }) => {
           const isActive = route.profile === key
@@ -487,16 +496,13 @@ export default function MapScreen() {
     userLocation,
     locationError,
     locationLoading,
-    selectedSite,
     unlockedSiteIds,
     followUserLocation,
     proximityAlerts,
     highAccuracy,
-    showUnlocked,
     setUserLocation,
     setLocationError,
     setLocationLoading,
-    setSelectedSite,
     setFollowUserLocation,
     pendingDirectionsSiteId,
     setPendingDirectionsSiteId,
@@ -507,11 +513,16 @@ export default function MapScreen() {
   const alertedSiteIds = useRef<Set<string>>(new Set())
   const activeRouteSite = useRef<TourismSite | null>(null)
   const routeCache = useRef<Partial<Record<RouteProfile, ActiveRoute>>>({})
+  // Always-current ref so async callbacks never capture a stale userLocation closure.
+  const userLocationRef = useRef(userLocation)
+  useEffect(() => { userLocationRef.current = userLocation }, [userLocation])
+
   const [pulsePhase, setPulsePhase] = useState(0)
   const [infoVisible, setInfoVisible] = useState(false)
+  const fabPulse = useRef(new Animated.Value(0)).current
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
-  const [questExpanded, setQuestExpanded] = useState(true)
+  const [questExpanded, setQuestExpanded] = useState(false)
 
   // Supabase destinations
   const [sites, setSites] = useState<TourismSite[]>([])
@@ -533,21 +544,15 @@ export default function MapScreen() {
       .finally(() => setSitesLoading(false))
   }, [])
 
-  // Auto-trigger directions when returning from recommend screen
+  // Auto-trigger directions when returning from history/recommend/detail screen.
+  // Uses userLocationRef.current so it doesn't re-fire on every location update.
   useEffect(() => {
     if (!pendingDirectionsSiteId || sites.length === 0) return
+    if (!userLocationRef.current) return
     const site = sites.find((s) => s.id === pendingDirectionsSiteId)
     if (!site) return
     setPendingDirectionsSiteId(null)
-    setSelectedSite(site)
     handleGetDirections(site, 'driving')
-    if (cameraRef.current) {
-      cameraRef.current.setCamera({
-        centerCoordinate: [site.coordinates.longitude, site.coordinates.latitude],
-        zoomLevel: 14,
-        animationDuration: 800,
-      })
-    }
   }, [pendingDirectionsSiteId, sites])
 
   // Pulse animation for route line
@@ -565,6 +570,18 @@ export default function MapScreen() {
     return () => clearInterval(interval)
   }, [activeRoute])
 
+  // FAB pulse ring — loops indefinitely to draw attention
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(fabPulse, { toValue: 1, duration: 1200, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(fabPulse, { toValue: 0, duration: 400, useNativeDriver: true }),
+      ])
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [])
+
   const pulseOpacity = 0.15 + pulsePhase * 0.4
   const pulseWidth   = 10  + pulsePhase * 8
 
@@ -578,18 +595,21 @@ export default function MapScreen() {
   }, [searchQuery, sites])
 
   // ---------------------------------------------------------------------------
-  // Location
+  // Location — two separate effects:
+  //   1. One-time init: request permission + get initial fix + fly camera
+  //   2. Continuous watch: restarts only when highAccuracy setting changes
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    let subscription: Location.LocationSubscription | null = null
+  const locationPermissionGranted = useRef(false)
 
-    async function startTracking() {
+  useEffect(() => {
+    async function initLocation() {
       setLocationLoading(true)
       const { status } = await Location.requestForegroundPermissionsAsync()
       if (status !== 'granted') {
         setLocationError('Location permission denied.')
         return
       }
+      locationPermissionGranted.current = true
       const initial = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       })
@@ -609,6 +629,17 @@ export default function MapScreen() {
           animationDuration: 800,
         })
       }
+    }
+    initLocation()
+  }, [])
+
+  useEffect(() => {
+    let subscription: Location.LocationSubscription | null = null
+
+    async function startWatch() {
+      const { status } = await Location.getForegroundPermissionsAsync()
+      if (status !== 'granted') return
+
       subscription = await Location.watchPositionAsync(
         {
           accuracy: highAccuracy ? Location.Accuracy.High : Location.Accuracy.Balanced,
@@ -625,7 +656,7 @@ export default function MapScreen() {
       )
     }
 
-    startTracking()
+    startWatch()
     return () => { subscription?.remove() }
   }, [highAccuracy])
 
@@ -634,7 +665,7 @@ export default function MapScreen() {
       const dist = getDistanceMeters(lat, lon, site.coordinates.latitude, site.coordinates.longitude)
       if (dist <= site.unlockRadiusMeters && !alertedSiteIds.current.has(site.id)) {
         alertedSiteIds.current.add(site.id)
-        if (proximityAlerts) setSelectedSite(site)
+        if (proximityAlerts) router.push(`/site/${site.id}`)
       }
     })
   }
@@ -642,18 +673,19 @@ export default function MapScreen() {
   // ---------------------------------------------------------------------------
   // Directions
   // ---------------------------------------------------------------------------
-  async function handleGetDirections(site: TourismSite, profile: RouteProfile = 'walking') {
-    if (!userLocation) {
+  async function handleGetDirections(site: TourismSite, profile: RouteProfile = 'driving') {
+    const loc = userLocationRef.current
+    if (!loc) {
       setRouteError('Your location is not available yet.')
       return
     }
 
-    activeRouteSite.current = site
-    setRouteError(null)
-
-    if (!routeCache.current[profile] || activeRouteSite.current?.id !== site.id) {
+    // Clear cache if switching to a different destination
+    if (activeRouteSite.current?.id !== site.id) {
       routeCache.current = {}
     }
+    activeRouteSite.current = site
+    setRouteError(null)
 
     if (routeCache.current[profile]) {
       setActiveRoute(routeCache.current[profile]!)
@@ -669,8 +701,8 @@ export default function MapScreen() {
     const results = await Promise.all(
       allProfiles.map((p) =>
         fetchRoute(
-          userLocation.longitude,
-          userLocation.latitude,
+          loc.longitude,
+          loc.latitude,
           site.coordinates.longitude,
           site.coordinates.latitude,
           p,
@@ -695,32 +727,52 @@ export default function MapScreen() {
     fitCameraToRoute(site)
   }
 
+  // FIX (Issue 3): Flatten the camera to top-down BEFORE calling fitBounds.
+  // The previous approach called fitBounds first then used a setTimeout to
+  // flatten afterward, which caused a visible two-step animation: the map
+  // would first fly in at the inherited 60° pitch, then snap flat 850 ms
+  // later.  By issuing setCamera({pitch:0, heading:0}) with a short
+  // animationDuration first, the camera is already level when fitBounds
+  // begins, so the user sees one smooth top-down zoom-to-fit with no jank.
   function fitCameraToRoute(site: TourismSite) {
-    if (!userLocation) return
-    cameraRef.current?.fitBounds(
-      [
-        Math.min(userLocation.longitude, site.coordinates.longitude),
-        Math.min(userLocation.latitude, site.coordinates.latitude),
-      ],
-      [
-        Math.max(userLocation.longitude, site.coordinates.longitude),
-        Math.max(userLocation.latitude, site.coordinates.latitude),
-      ],
-      [120, 60, 60, 60],
-      800,
-    )
+    const loc = userLocationRef.current
+    if (!loc) return
+
+    // Step 1 — flatten immediately (100 ms, nearly imperceptible)
+    cameraRef.current?.setCamera({
+      pitch: 0,
+      heading: 0,
+      animationDuration: 100,
+    })
+
+    // Step 2 — once flat, zoom to fit both endpoints
+    setTimeout(() => {
+      cameraRef.current?.fitBounds(
+        [
+          Math.min(loc.longitude, site.coordinates.longitude),
+          Math.min(loc.latitude, site.coordinates.latitude),
+        ],
+        [
+          Math.max(loc.longitude, site.coordinates.longitude),
+          Math.max(loc.latitude, site.coordinates.latitude),
+        ],
+        [100, 60, 180, 60], // bottom padding keeps route pill from covering the path
+        800,
+      )
+    }, 120)
   }
 
   async function prefetchMissingProfiles(site: TourismSite) {
-    if (!userLocation) return
+    const loc = userLocationRef.current
+    if (!loc) return
     const allProfiles: RouteProfile[] = ['walking', 'driving', 'cycling']
     await Promise.all(
       allProfiles
         .filter((p) => !routeCache.current[p])
         .map((p) =>
           fetchRoute(
-            userLocation.longitude,
-            userLocation.latitude,
+            loc.longitude,
+            loc.latitude,
             site.coordinates.longitude,
             site.coordinates.latitude,
             p,
@@ -738,7 +790,7 @@ export default function MapScreen() {
   }
 
   function handleChangeProfile(profile: RouteProfile) {
-    const site = selectedSite ?? activeRouteSite.current
+    const site = activeRouteSite.current
     if (!site) return
     if (routeCache.current[profile]) {
       setActiveRoute(routeCache.current[profile]!)
@@ -774,8 +826,12 @@ export default function MapScreen() {
     })
   }
 
+  // FIX (Issue 4): navigate to the detail page without touching selectedSite
+  // state (which was only used for the now-removed SiteSheet). The map stays
+  // mounted in the tab navigator; router.push adds the detail on top of the
+  // stack so router.back() in [id].tsx always returns here without a remount.
   function handleSelectSite(site: TourismSite) {
-    setSelectedSite(site)
+    router.navigate(`/site/${site.id}`)
     flyToSite(site)
     setSearchQuery('')
     Keyboard.dismiss()
@@ -792,6 +848,9 @@ export default function MapScreen() {
       : [],
   }
 
+  // The id of the site currently being navigated to (used for marker styling)
+  const activeDestinationId = activeRouteSite.current?.id ?? null
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
@@ -802,7 +861,6 @@ export default function MapScreen() {
         styleURL="mapbox://styles/cqrl/cmo9oio09001j01spaoqp2dtn"
         onPress={() => {
           setFollowUserLocation(false)
-          if (!searchFocused) setSelectedSite(null)
           Keyboard.dismiss()
         }}
         onCameraChanged={(state) => {
@@ -866,32 +924,19 @@ export default function MapScreen() {
           </MapboxGL.ShapeSource>
         )}
 
-        {/* Destination pin for active route */}
-        {activeRoute && selectedSite && (
-          <MapboxGL.MarkerView
-            coordinate={[selectedSite.coordinates.longitude, selectedSite.coordinates.latitude]}
-            anchor={{ x: 0.5, y: 1 }}
-          >
-            <View style={styles.destinationPin}>
-              <Text style={styles.destinationPinLetter}>
-                {selectedSite.category.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          </MapboxGL.MarkerView>
-        )}
-
-        {/* Tourism site markers */}
-        {sites
-          .filter((site) => showUnlocked ? true : !unlockedSiteIds.has(site.id))
-          .map((site) => (
-            <SiteMarker
-              key={site.id}
-              site={site}
-              isUnlocked={unlockedSiteIds.has(site.id)}
-              isSelected={selectedSite?.id === site.id}
-              onPress={() => handleSelectSite(site)}
-            />
-          ))}
+        {/* Tourism site markers
+            FIX (Issue 3): when a route is active, all markers except the
+            destination are dimmed to 30% so the route line is unobstructed. */}
+        {sites.map((site) => (
+          <SiteMarker
+            key={site.id}
+            site={site}
+            isUnlocked={unlockedSiteIds.has(site.id)}
+            isDestination={site.id === activeDestinationId}
+            isDimmed={activeRoute !== null && site.id !== activeDestinationId}
+            onPress={() => handleSelectSite(site)}
+          />
+        ))}
       </MapboxGL.MapView>
 
       {/* ── Route loading indicator ── */}
@@ -912,17 +957,23 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* ── Bottom-left: recommend button ── */}
-      <TouchableOpacity
-        style={styles.recommendBtn}
-        onPress={() => router.push('/(tabs)/recommend')}
-        activeOpacity={0.85}
-      >
-        <IconRecommend size={16} color={Colors.primary} />
-      </TouchableOpacity>
+      {/* ── Centered FAB: Discover Places ── */}
+      <View style={styles.fabWrap} pointerEvents="box-none">
+        <Animated.View style={[styles.fabRing, {
+          opacity: fabPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+          transform: [{ scale: fabPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+        }]} />
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.navigate('/(tabs)/recommend')}
+          activeOpacity={0.88}
+        >
+          <IconRecommend size={20} color={Colors.textInverse} />
+          <Text style={styles.fabLabel}>Discover Places</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ── Right-side cluster: recenter + history + info + settings ── */}
-      {/* Shifts down when route pill is visible to avoid overlap */}
       <View style={[styles.rightCluster, activeRoute && styles.rightClusterWithRoute]}>
         {userLocation && (
           <TouchableOpacity
@@ -935,7 +986,7 @@ export default function MapScreen() {
         )}
         <TouchableOpacity
           style={styles.clusterBtn}
-          onPress={() => router.push('/(tabs)/history')}
+          onPress={() => router.navigate('/(tabs)/history')}
           activeOpacity={0.85}
         >
           <IconHistory size={18} color={Colors.textSecondary} />
@@ -949,10 +1000,17 @@ export default function MapScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.clusterBtn}
-          onPress={() => router.push('/(tabs)/settings')}
+          onPress={() => router.navigate('/(tabs)/settings')}
           activeOpacity={0.85}
         >
           <IconSettings size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.clusterBtn}
+          onPress={() => router.push('/onboarding')}
+          activeOpacity={0.85}
+        >
+          <IconHelp size={17} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -1031,16 +1089,14 @@ export default function MapScreen() {
           {questExpanded && (
             <TouchableOpacity
               style={styles.questBody}
-              onPress={() => router.push('/(tabs)/history')}
+              onPress={() => router.navigate('/(tabs)/history')}
               activeOpacity={0.85}
             >
               <Text style={styles.questTitle}>Exploration Trail</Text>
-              {/* Fraction */}
               <View style={styles.questFractionRow}>
                 <Text style={styles.questCountBig}>{unlockedSiteIds.size}</Text>
                 <Text style={styles.questSlash}>/{sites.length}</Text>
               </View>
-              {/* Horizontal progress bar */}
               <View style={styles.questBarTrack}>
                 <View style={[
                   styles.questBarFill,
@@ -1049,10 +1105,10 @@ export default function MapScreen() {
               </View>
               <Text style={styles.questSub}>
                 {unlockedSiteIds.size === 0
-                  ? 'Start exploring!'
+                  ? 'Visit sites to log them!'
                   : unlockedSiteIds.size === sites.length
-                  ? '🎉 All discovered!'
-                  : `${sites.length - unlockedSiteIds.size} left`}
+                  ? '🎉 All visited!'
+                  : `${sites.length - unlockedSiteIds.size} left to visit`}
               </Text>
             </TouchableOpacity>
           )}
@@ -1093,17 +1149,6 @@ export default function MapScreen() {
       >
         <Text style={styles.devSignOutTxt}>Sign out</Text>
       </TouchableOpacity>
-
-      {/* ── Site detail bottom sheet ── */}
-      {selectedSite && (
-        <SiteSheet
-          site={selectedSite}
-          onClose={() => setSelectedSite(null)}
-          onGetDirections={(profile) => handleGetDirections(selectedSite, profile)}
-          hasActiveRoute={!!activeRoute}
-          onClearRoute={handleClearRoute}
-        />
-      )}
     </View>
   )
 }
@@ -1136,8 +1181,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.15 }],
     shadowOpacity: 0.28,
   },
-  markerLocked: { borderColor: Colors.border, opacity: 0.75 },
-  // Category initial letter replacing emoji
+  markerVisited: { borderColor: Colors.primary, borderWidth: 3 },
   markerLetter: {
     fontFamily: Typography.bodySemiBold,
     fontSize: 16,
@@ -1145,14 +1189,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   markerImage: { width: 40, height: 40, borderRadius: 20 },
-  markerImageLocked: { opacity: 0.55 },
-  markerLockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    borderRadius: 20,
-  },
   markerTail: {
     width: 8, height: 8,
     backgroundColor: Colors.primary,
@@ -1161,21 +1197,6 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   markerTailSelected: { backgroundColor: Colors.accent },
-
-  // Destination pin
-  destinationPin: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: Colors.bgCard,
-    borderWidth: 3, borderColor: Colors.accent,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35, shadowRadius: 8, elevation: 8,
-  },
-  destinationPinLetter: {
-    fontFamily: Typography.bodySemiBold,
-    fontSize: 20, color: Colors.accent,
-  },
 
   // ── Route pill ──
   routePillContainer: {
@@ -1245,22 +1266,48 @@ const styles = StyleSheet.create({
 
   // ── Right cluster ──
   rightCluster: {
-    position: 'absolute', bottom: 260, right: Spacing.md,
+    position: 'absolute', bottom: 180, right: Spacing.md,
     flexDirection: 'column', alignItems: 'center', gap: 12, zIndex: 15,
   },
-  // Shift up when route pill occupies the top area — avoids no conflict needed
-  // (route pill is at top, cluster is at bottom, so no shift needed for cluster)
   rightClusterWithRoute: {
-    bottom: 260,
+    bottom: 180,
   },
-  recommendBtn: {
-    position: 'absolute', bottom: 100, left: Spacing.md,
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: Colors.bgCard,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12, shadowRadius: 8, elevation: 5,
-    borderWidth: 1.5, borderColor: Colors.border, zIndex: 10,
+
+  // ── Centered FAB ──
+  fabWrap: {
+    position: 'absolute',
+    bottom: 36,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+  fabRing: {
+    position: 'absolute',
+    width: 180,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary,
+  },
+  fab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 28,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  fabLabel: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 16,
+    color: Colors.textInverse,
+    letterSpacing: 0.3,
   },
   clusterBtn: {
     width: 44, height: 44, borderRadius: 22,
@@ -1301,7 +1348,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: Spacing.md, paddingVertical: 12, gap: 10,
   },
-  // Category badge replacing emoji in search results
   searchResultBadge: {
     width: 32, height: 32, borderRadius: 8,
     alignItems: 'center', justifyContent: 'center',
@@ -1342,11 +1388,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     zIndex: 12,
   },
-  // When route pill is active, push the quest panel further down to avoid overlap
   questPanelWithRoute: {
     top: Platform.OS === 'android' ? 232 : 240,
   },
-  // The always-visible tab/handle on the left edge
   questTab: {
     width: 28,
     paddingVertical: 10,
@@ -1389,7 +1433,6 @@ const styles = StyleSheet.create({
     fontFamily: Typography.bodySemiBold, fontSize: 13,
     color: Colors.textMuted, lineHeight: 14,
   },
-  // Expanded body panel
   questBody: {
     backgroundColor: Colors.bgCard,
     borderTopRightRadius: Radius.lg,

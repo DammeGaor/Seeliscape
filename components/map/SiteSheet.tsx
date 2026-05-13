@@ -36,14 +36,42 @@ const IMAGE_HEIGHT = 200
 // ---------------------------------------------------------------------------
 // Criterion metadata for the review form
 // ---------------------------------------------------------------------------
-const CRITERIA: { key: keyof CriterionRatings; label: string; emoji: string }[] = [
-  { key: 'attraction',        label: 'Attraction',         emoji: '✨' },
-  { key: 'accessibility',     label: 'Accessibility',      emoji: '🛣️' },
-  { key: 'amenities',         label: 'Amenities',          emoji: '🏪' },
-  { key: 'availablePackages', label: 'Packages',           emoji: '🎒' },
-  { key: 'activities',        label: 'Activities',         emoji: '🏄' },
-  { key: 'ancillaryServices', label: 'Ancillary Services', emoji: '🛎️' },
+const CRITERIA: {
+  key: keyof CriterionRatings
+  label: string
+  shortLabel: string
+  emoji: string
+  hint: string
+}[] = [
+  {
+    key: 'attraction', label: 'Attraction', shortLabel: 'Attraction', emoji: '✨',
+    hint: 'Scenic beauty, uniqueness, and overall wow-factor',
+  },
+  {
+    key: 'accessibility', label: 'Accessibility', shortLabel: 'Access', emoji: '🛣️',
+    hint: 'Ease of getting here — roads, signage, and transport',
+  },
+  {
+    key: 'amenities', label: 'Amenities', shortLabel: 'Amenities', emoji: '🏪',
+    hint: 'Restrooms, food stalls, parking, and basic facilities',
+  },
+  {
+    key: 'availablePackages', label: 'Tour Packages', shortLabel: 'Packages', emoji: '🎒',
+    hint: 'Availability and value of guided tours or bundled offers',
+  },
+  {
+    key: 'activities', label: 'Activities', shortLabel: 'Activities', emoji: '🏄',
+    hint: 'Things to do — adventures, cultural experiences, and more',
+  },
+  {
+    key: 'ancillaryServices', label: 'Support Services', shortLabel: 'Services', emoji: '🛎️',
+    hint: 'Staff, guides, safety, and other visitor support',
+  },
 ]
+
+const STAR_LABELS: Record<number, string> = {
+  1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Very Good', 5: 'Excellent',
+}
 
 // ---------------------------------------------------------------------------
 // StarRating
@@ -51,21 +79,39 @@ const CRITERIA: { key: keyof CriterionRatings; label: string; emoji: string }[] 
 function StarRating({
   value,
   onChange,
-  size = 24,
+  size = 26,
 }: {
   value: number
   onChange: (v: number) => void
   size?: number
 }) {
   return (
-    <View style={{ flexDirection: 'row', gap: 4 }}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <TouchableOpacity key={star} onPress={() => onChange(star)} activeOpacity={0.7}>
-          <Text style={{ fontSize: size, opacity: star <= value ? 1 : 0.2 }}>⭐</Text>
-        </TouchableOpacity>
-      ))}
+    <View style={starRatingWrap}>
+      <View style={starRatingRow}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <TouchableOpacity
+            key={star}
+            onPress={() => onChange(star)}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          >
+            <Text style={{ fontSize: size, opacity: star <= value ? 1 : 0.15 }}>⭐</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      {value > 0 && (
+        <Text style={starRatingLabel}>{STAR_LABELS[value]}</Text>
+      )}
     </View>
   )
+}
+const starRatingWrap: import('react-native').ViewStyle = { alignItems: 'flex-end', gap: 2 }
+const starRatingRow:  import('react-native').ViewStyle = { flexDirection: 'row', gap: 6 }
+const starRatingLabel: import('react-native').TextStyle = {
+  fontSize: 11,
+  color: Colors.primary,
+  fontStyle: 'italic',
+  textAlign: 'right',
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +161,7 @@ export function SiteSheet({
   }
 
   const [descExpanded,    setDescExpanded]    = useState(false)
+  const [descNeedsToggle, setDescNeedsToggle] = useState(false)
   const [reviewOpen,      setReviewOpen]      = useState(false)
   const [alreadyReviewed, setAlreadyReviewed] = useState(false)
   const [existingRecord,  setExistingRecord]  = useState<ReviewRecord | null>(null)
@@ -124,6 +171,12 @@ export function SiteSheet({
   const [submitted,       setSubmitted]       = useState(false)
   const [reviewLoading,   setReviewLoading]   = useState(false)
 
+  // Reset description state when site changes
+  useEffect(() => {
+    setDescExpanded(false)
+    setDescNeedsToggle(false)
+  }, [site.id])
+
   // Auto-unlock when in range
   useEffect(() => {
     if (isInRange && !isUnlocked) unlockSite(site.id)
@@ -131,7 +184,7 @@ export function SiteSheet({
 
   // Check if user already reviewed this site
   useEffect(() => {
-    if (!userId || !isUnlocked) return
+    if (!userId) return
     setReviewLoading(true)
     fetchUserReviewForSite(userId, site.id)
       .then((existing) => {
@@ -142,7 +195,7 @@ export function SiteSheet({
       })
       .catch(() => {})
       .finally(() => setReviewLoading(false))
-  }, [userId, site.id, isUnlocked])
+  }, [userId, site.id])
 
   // Slide up animation
   useEffect(() => {
@@ -299,50 +352,39 @@ export function SiteSheet({
           </View>
         ) : null}
 
-        {/* ── Description ── */}
-        {isUnlocked ? (
+        {/* ── Description ──
+            onTextLayout fires on the *collapsed* render (numberOfLines=2).
+            If the native engine truncated anything, lines.length will equal
+            numberOfLines AND the last line will contain an ellipsis — meaning
+            there is more text. We use that to decide whether the toggle is needed.
+            When expanded we remove numberOfLines so the full text is shown. */}
+        {site.description ? (
           <>
-            <View style={styles.unlockedBanner}>
-              <Text style={styles.unlockedTxt}>Site unlocked! You visited this location.</Text>
-            </View>
             <Text
               style={styles.description}
-              numberOfLines={descExpanded ? undefined : 3}
+              numberOfLines={descExpanded ? undefined : 2}
+              onTextLayout={(e) => {
+                if (!descExpanded) {
+                  // If the layout clipped to exactly 2 lines the text overflows
+                  setDescNeedsToggle(e.nativeEvent.lines.length >= 2)
+                }
+              }}
             >
               {site.description}
             </Text>
-            <TouchableOpacity onPress={() => setDescExpanded((v) => !v)} activeOpacity={0.7}>
-              <Text style={styles.descToggle}>
-                {descExpanded ? '▲ Show less' : '▼ Show more'}
-              </Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text
-              style={styles.description}
-              numberOfLines={descExpanded ? undefined : 3}
-            >
-              {site.shortDescription}
-            </Text>
-            <TouchableOpacity onPress={() => setDescExpanded((v) => !v)} activeOpacity={0.7}>
-              <Text style={styles.descToggle}>
-                {descExpanded ? '▲ Show less' : '▼ Show more'}
-              </Text>
-            </TouchableOpacity>
-            <View style={styles.lockedBanner}>
-              <Text style={styles.lockedIcon}></Text>
-              <View>
-                <Text style={styles.lockedTitle}>Visit to unlock</Text>
-                <Text style={styles.lockedSub}>
-                  Get within {site.unlockRadiusMeters >= 1000
-                    ? `${(site.unlockRadiusMeters / 1000).toFixed(1)}km`
-                    : `${site.unlockRadiusMeters}m`} to unlock full details
+            {descNeedsToggle && (
+              <TouchableOpacity
+                onPress={() => setDescExpanded((v) => !v)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Text style={styles.descToggle}>
+                  {descExpanded ? '▲ Show less' : '▼ Show more'}
                 </Text>
-              </View>
-            </View>
+              </TouchableOpacity>
+            )}
           </>
-        )}
+        ) : null}
 
         {/* ── View in AR button — only when in range AND site has AR ── */}
         {hasAR && isInRange && userLocation && (
@@ -383,99 +425,154 @@ export function SiteSheet({
         {/* ── Review section — unlocked sites only ── */}
         {isUnlocked && (
           <View style={styles.reviewSection}>
+
+            {/* ── Section header ── */}
             <View style={styles.reviewSectionHeader}>
-              <Text style={styles.reviewSectionTitle}>Tourist Consensus</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reviewSectionTitle}>Tourist Consensus</Text>
+                <Text style={styles.reviewSectionSub}>
+                  Scores rated by visitors like you across 6 aspects
+                </Text>
+              </View>
               {reviewLoading && <ActivityIndicator size="small" color={Colors.primary} />}
             </View>
 
-            {/* Feature #6: per-criterion live scores ── */}
+            {/* ── Community score bars ── */}
             {site.sixAScores && (
               <View style={styles.scoresGrid}>
-                {([
-                  { key: 'attraction',        label: 'Attraction',    emoji: '✨' },
-                  { key: 'accessibility',     label: 'Access',        emoji: '🛣️' },
-                  { key: 'amenities',         label: 'Amenities',     emoji: '🏪' },
-                  { key: 'availablePackages', label: 'Packages',      emoji: '🎒' },
-                  { key: 'activities',        label: 'Activities',    emoji: '🏄' },
-                  { key: 'ancillaryServices', label: 'Ancillary',     emoji: '🛎️' },
-                ] as const).map(({ key, label, emoji }) => {
-                  const live = site.sixAScores[key] ?? 0
+                {CRITERIA.map(({ key, shortLabel, emoji }) => {
+                  const live = (site.sixAScores as any)[key] ?? 0
                   const pct  = Math.round((live / 5) * 100)
                   return (
                     <View key={key} style={styles.scoreCell}>
                       <Text style={styles.scoreCellEmoji}>{emoji}</Text>
+                      <Text style={styles.scoreCellLabel}>{shortLabel}</Text>
                       <View style={styles.scoreCellBar}>
                         <View style={[styles.scoreCellFill, { width: `${pct}%` }]} />
                       </View>
-                      <Text style={styles.scoreCellVal}>{live}/5</Text>
+                      <Text style={styles.scoreCellVal}>{live > 0 ? live.toFixed(1) : '—'}</Text>
                     </View>
                   )
                 })}
               </View>
             )}
 
-            {/* Feature #4: contribution context ── */}
+            {/* ── Contribution context ── */}
             {!submitted && !alreadyReviewed && (
               <Text style={styles.consensusContext}>
                 {site.reviewCount && site.reviewCount > 0
-                  ? `${site.reviewCount} tourist${site.reviewCount !== 1 ? 's' : ''} have rated this site · your vote will update these scores`
-                  : 'No tourist reviews yet — be the first to rate this site and shape the data'}
+                  ? `Based on ${site.reviewCount} visitor rating${site.reviewCount !== 1 ? 's' : ''} — yours will update these scores in real time`
+                  : 'No ratings yet — be the first visitor to rate this site and help other tourists'}
               </Text>
             )}
 
+            {/* ── Divider ── */}
+            <View style={styles.reviewDivider} />
+
+            {/* ── Reviewed banner OR rating flow ── */}
             {submitted || alreadyReviewed ? (
               <View style={styles.reviewedBanner}>
                 <Text style={styles.reviewedIcon}>✓</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.reviewedTitle}>Review submitted</Text>
+                  <Text style={styles.reviewedTitle}>Your review is submitted</Text>
+                  <Text style={styles.reviewedSub}>
+                    Thank you for helping fellow tourists explore Albay!
+                  </Text>
                   {existingRecord && (
-                    <Text style={styles.reviewedSub}>{existingRatingSummary()}</Text>
+                    <View style={styles.reviewedScoreGrid}>
+                      {CRITERIA.map((c) => {
+                        const dbKey = `rating_${c.key.replace(/([A-Z])/g, '_$1').toLowerCase()}` as keyof ReviewRecord
+                        const val = existingRecord[dbKey] as number | null
+                        return (
+                          <View key={c.key} style={styles.reviewedScoreRow}>
+                            <Text style={styles.reviewedScoreEmoji}>{c.emoji}</Text>
+                            <Text style={styles.reviewedScoreName}>{c.label}</Text>
+                            <Text style={styles.reviewedScoreVal}>
+                              {val !== null ? `${val}/5` : 'Not rated'}
+                            </Text>
+                          </View>
+                        )
+                      })}
+                    </View>
                   )}
                 </View>
               </View>
             ) : (
               <>
                 {!reviewOpen ? (
+                  /* ── CTA to open form ── */
                   <TouchableOpacity
                     style={styles.leaveReviewBtn}
                     onPress={() => setReviewOpen(true)}
                     activeOpacity={0.75}
                   >
-                    <Text style={styles.leaveReviewTxt}>Rate your experience</Text>
+                    <Text style={styles.leaveReviewEmoji}>⭐</Text>
+                    <View>
+                      <Text style={styles.leaveReviewTitle}>Rate your visit</Text>
+                      <Text style={styles.leaveReviewSub}>Takes about 30 seconds · all fields optional</Text>
+                    </View>
                   </TouchableOpacity>
                 ) : (
+                  /* ── Rating form ── */
                   <View style={styles.reviewForm}>
-                    <Text style={styles.reviewFormSubtitle}>
-                      Rate each aspect of your visit. Your ratings directly shape the scores
-                      other tourists see.
-                    </Text>
 
-                    {/* Per-criterion star pickers */}
+                    {/* Intro guide */}
+                    <View style={styles.reviewGuide}>
+                      <Text style={styles.reviewGuideTitle}>How to rate</Text>
+                      <Text style={styles.reviewGuideTxt}>
+                        Tap the stars for each aspect of your visit below. You only need to
+                        rate what you experienced — skip anything that doesn't apply.
+                      </Text>
+                    </View>
+
+                    {/* Per-criterion rows */}
                     {CRITERIA.map((c) => (
-                      <View key={c.key} style={styles.criterionRow}>
-                        <View style={styles.criterionLabel}>
+                      <View key={c.key} style={styles.criterionCard}>
+                        {/* Criterion header */}
+                        <View style={styles.criterionHeader}>
                           <Text style={styles.criterionEmoji}>{c.emoji}</Text>
-                          <Text style={styles.criterionName}>{c.label}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.criterionName}>{c.label}</Text>
+                            <Text style={styles.criterionHint}>{c.hint}</Text>
+                          </View>
                         </View>
-                        <StarRating
-                          value={ratings[c.key] ?? 0}
-                          onChange={(v) => setRating(c.key, v)}
-                          size={22}
-                        />
+                        {/* Stars sit on their own row for easy tapping */}
+                        <View style={styles.criterionStarRow}>
+                          <StarRating
+                            value={ratings[c.key] ?? 0}
+                            onChange={(v) => setRating(c.key, v)}
+                            size={28}
+                          />
+                          {ratings[c.key] === null || ratings[c.key] === 0 ? (
+                            <Text style={styles.criterionUnrated}>Tap to rate</Text>
+                          ) : null}
+                        </View>
                       </View>
                     ))}
 
-                    <TextInput
-                      style={styles.commentInput}
-                      placeholder="Share what you loved… (optional)"
-                      placeholderTextColor={Colors.textMuted}
-                      value={comment}
-                      onChangeText={setComment}
-                      multiline
-                      numberOfLines={3}
-                      textAlignVertical="top"
-                    />
+                    {/* Comment box */}
+                    <View style={styles.commentSection}>
+                      <Text style={styles.commentLabel}>💬 Additional comments <Text style={styles.commentOptional}>(optional)</Text></Text>
+                      <TextInput
+                        style={styles.commentInput}
+                        placeholder="Share what stood out — good or bad…"
+                        placeholderTextColor={Colors.textMuted}
+                        value={comment}
+                        onChangeText={setComment}
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    </View>
 
+                    {/* Requirement hint */}
+                    {!hasAnyRating && (
+                      <Text style={styles.submitHint}>
+                        ☝️ Rate at least one aspect above to submit
+                      </Text>
+                    )}
+
+                    {/* Actions */}
                     <View style={styles.reviewFormActions}>
                       <TouchableOpacity
                         style={styles.cancelBtn}
@@ -500,7 +597,7 @@ export function SiteSheet({
                       >
                         {submitting
                           ? <ActivityIndicator color="#fff" size="small" />
-                          : <Text style={styles.submitBtnTxt}>Submit</Text>}
+                          : <Text style={styles.submitBtnTxt}>Submit rating</Text>}
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -675,17 +772,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 
-  unlockedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.successLight,
-    borderRadius: Radius.md,
-    padding: Spacing.sm,
-  },
-  unlockedIcon: { fontSize: 16 },
-  unlockedTxt: { fontFamily: Typography.bodyMedium, fontSize: 13, color: Colors.success, flex: 1 },
-
   description: {
     fontFamily: Typography.bodyFont,
     fontSize: 15,
@@ -698,21 +784,6 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     marginTop: -4,
   },
-
-  lockedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: Colors.bg,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderStyle: 'dashed',
-    padding: Spacing.md,
-  },
-  lockedIcon: { fontSize: 22 },
-  lockedTitle: { fontFamily: Typography.bodySemiBold, fontSize: 14, color: Colors.textPrimary, marginBottom: 2 },
-  lockedSub: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted },
 
   directionsBtn: {
     height: 50,
@@ -773,6 +844,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  // ── Review section wrapper ──────────────────────────────────────────────
   reviewSection: {
     marginTop: Spacing.xs,
     backgroundColor: Colors.bg,
@@ -780,19 +852,85 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     padding: Spacing.md,
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   reviewSectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+    gap: 8,
   },
   reviewSectionTitle: {
     fontFamily: Typography.bodySemiBold,
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.textPrimary,
   },
+  reviewSectionSub: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 2,
+    lineHeight: 16,
+  },
 
+  // ── Community score bars ─────────────────────────────────────────────────
+  scoresGrid: {
+    gap: 8,
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  scoreCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  scoreCellEmoji: { fontSize: 13, width: 18 },
+  scoreCellLabel: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    width: 72,
+  },
+  scoreCellBar: {
+    flex: 1,
+    height: 7,
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  scoreCellFill: {
+    height: 7,
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
+  },
+  scoreCellVal: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    width: 30,
+    textAlign: 'right',
+  },
+
+  // ── Contribution context ─────────────────────────────────────────────────
+  consensusContext: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+
+  // ── Divider between community scores and personal rating ─────────────────
+  reviewDivider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: -Spacing.xs,
+  },
+
+  // ── Already-reviewed banner ──────────────────────────────────────────────
   reviewedBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -801,57 +939,142 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     padding: Spacing.sm,
   },
-  reviewedIcon: { fontSize: 18, color: Colors.success },
-  reviewedTitle: { fontFamily: Typography.bodySemiBold, fontSize: 13, color: Colors.success },
+  reviewedIcon: { fontSize: 20, color: Colors.success },
+  reviewedTitle: { fontFamily: Typography.bodySemiBold, fontSize: 14, color: Colors.success },
   reviewedSub: {
     fontFamily: Typography.bodyFont,
     fontSize: 12,
     color: Colors.success,
-    marginTop: 4,
-    lineHeight: 18,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  reviewedScoreGrid: {
+    marginTop: Spacing.sm,
+    gap: 4,
+  },
+  reviewedScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reviewedScoreEmoji: { fontSize: 12, width: 18 },
+  reviewedScoreName: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.success,
+    flex: 1,
+  },
+  reviewedScoreVal: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 12,
+    color: Colors.success,
   },
 
+  // ── CTA button to open form ──────────────────────────────────────────────
   leaveReviewBtn: {
-    height: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     borderRadius: Radius.md,
     backgroundColor: Colors.bgCard,
     borderWidth: 1.5,
     borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: Spacing.md,
   },
-  leaveReviewTxt: { fontFamily: Typography.bodyMedium, fontSize: 13, color: Colors.textSecondary },
-
-  reviewForm: { gap: Spacing.sm },
-
-  reviewFormSubtitle: {
+  leaveReviewEmoji: { fontSize: 28 },
+  leaveReviewTitle: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  leaveReviewSub: {
     fontFamily: Typography.bodyFont,
     fontSize: 12,
     color: Colors.textMuted,
-    lineHeight: 17,
+    marginTop: 1,
   },
 
-  // Per-criterion row
-  criterionRow: {
+  // ── Rating form ──────────────────────────────────────────────────────────
+  reviewForm: { gap: Spacing.md },
+
+  reviewGuide: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary,
+    padding: Spacing.sm,
+    gap: 4,
+  },
+  reviewGuideTitle: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 13,
+    color: Colors.textPrimary,
+  },
+  reviewGuideTxt: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+
+  // Per-criterion card
+  criterionCard: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  criterionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  criterionEmoji: { fontSize: 20, marginTop: 1 },
+  criterionName: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  criterionHint: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  criterionStarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingTop: Spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    marginTop: 2,
   },
-  criterionLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  criterionUnrated: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
   },
-  criterionEmoji: { fontSize: 16 },
-  criterionName: {
+
+  // Comment
+  commentSection: { gap: 6 },
+  commentLabel: {
     fontFamily: Typography.bodyMedium,
     fontSize: 13,
     color: Colors.textPrimary,
   },
-
+  commentOptional: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
   commentInput: {
     backgroundColor: Colors.bgCard,
     borderRadius: Radius.md,
@@ -861,13 +1084,23 @@ const styles = StyleSheet.create({
     fontFamily: Typography.bodyFont,
     fontSize: 13,
     color: Colors.textPrimary,
-    minHeight: 72,
-    marginTop: Spacing.xs,
+    minHeight: 80,
   },
+
+  // Submit hint
+  submitHint: {
+    fontFamily: Typography.bodyFont,
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
+  // Actions
   reviewFormActions: { flexDirection: 'row', gap: 8 },
   cancelBtn: {
     flex: 1,
-    height: 42,
+    height: 44,
     borderRadius: Radius.md,
     backgroundColor: Colors.bgCard,
     borderWidth: 1,
@@ -878,56 +1111,12 @@ const styles = StyleSheet.create({
   cancelBtnTxt: { fontFamily: Typography.bodyMedium, fontSize: 13, color: Colors.textMuted },
   submitBtn: {
     flex: 2,
-    height: 42,
+    height: 44,
     borderRadius: Radius.md,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  submitBtnDisabled: { opacity: 0.55 },
+  submitBtnDisabled: { opacity: 0.45 },
   submitBtnTxt: { fontFamily: Typography.bodySemiBold, fontSize: 13, color: Colors.textInverse },
-
-  // Feature #6: per-criterion score grid
-  scoresGrid: {
-    gap: 6,
-    backgroundColor: Colors.bgCard,
-    borderRadius: Radius.md,
-    padding: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  scoreCell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  scoreCellEmoji: { fontSize: 13, width: 20 },
-  scoreCellBar: {
-    flex: 1,
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  scoreCellFill: {
-    height: 6,
-    backgroundColor: Colors.primary,
-    borderRadius: 3,
-  },
-  scoreCellVal: {
-    fontFamily: Typography.bodyMedium,
-    fontSize: 11,
-    color: Colors.textSecondary,
-    width: 28,
-    textAlign: 'right',
-  },
-
-  // Feature #4: contribution context
-  consensusContext: {
-    fontFamily: Typography.bodyFont,
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 17,
-    fontStyle: 'italic',
-  },
 })

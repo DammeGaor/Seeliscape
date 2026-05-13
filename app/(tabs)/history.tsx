@@ -1,16 +1,25 @@
 // ---------------------------------------------------------------------------
-// app/(tabs)/history.tsx  (or wherever you mount it)
+// app/(tabs)/history.tsx
 //
-// Feature #5 — Visited sites history
-// Shows every site the tourist has unlocked + their ratings for each.
+// Feature #5 — Exploration Trail
+// Toggle between Unvisited / Visited destinations.
+// Ratings are only shown for visited (unlocked) sites.
+// Cards are tappable — tap opens the full detail view.
+//
+// FIXES vs previous version:
+//  1. Back button now navigates explicitly to the map tab instead of calling
+//     router.back(), which on a tab screen pops to whichever tab was last
+//     active rather than reliably going to the map.
+//  2. Description expand state uses useState<Set<string>> so React.memo
+//     sees a new Set instance on every toggle and re-renders the card.
+//     FlashList recycles views — the state lives in the screen, not the card.
 // ---------------------------------------------------------------------------
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Image,
@@ -18,6 +27,7 @@ import {
   SafeAreaView,
   StatusBar,
 } from 'react-native'
+import { FlashList } from '@shopify/flash-list'
 import { router } from 'expo-router'
 import { Colors, Spacing, Radius, Typography } from '@/constants/theme'
 import { useAuthStore } from '@/store/auth.store'
@@ -26,77 +36,450 @@ import { fetchUserReviews, ReviewRecord } from '@/lib/recommendations.service'
 import { fetchDestinations } from '@/lib/destinations.service'
 import { TourismSite } from '@/lib/tourism-sites'
 
+type Tab = 'unvisited' | 'visited'
+
 // Criterion display order
 const CRITERIA: { dbKey: keyof ReviewRecord; label: string; emoji: string }[] = [
-  { dbKey: 'rating_attraction',         label: 'Attraction',    emoji: '✨' },
-  { dbKey: 'rating_accessibility',      label: 'Accessibility', emoji: '🛣️' },
-  { dbKey: 'rating_amenities',          label: 'Amenities',     emoji: '🏪' },
-  { dbKey: 'rating_available_packages', label: 'AvailablePackages',      emoji: '🎒' },
-  { dbKey: 'rating_activities',         label: 'Activities',    emoji: '🏄' },
-  { dbKey: 'rating_ancillary_services', label: 'Ancillary Services',     emoji: '🛎️' },
+  { dbKey: 'rating_attraction',         label: 'Attraction',         emoji: '✨' },
+  { dbKey: 'rating_accessibility',      label: 'Accessibility',      emoji: '🛣️' },
+  { dbKey: 'rating_amenities',          label: 'Amenities',          emoji: '🏪' },
+  { dbKey: 'rating_available_packages', label: 'Packages',           emoji: '🎒' },
+  { dbKey: 'rating_activities',         label: 'Activities',         emoji: '🏄' },
+  { dbKey: 'rating_ancillary_services', label: 'Ancillary Services', emoji: '🛎️' },
 ]
 
-function StarRow({ value }: { value: number | null }) {
+// ---------------------------------------------------------------------------
+// StarRow — memoized so it never re-renders unless value changes
+// ---------------------------------------------------------------------------
+const StarRow = React.memo(function StarRow({ value }: { value: number | null }) {
   if (value === null) return <Text style={styles.notRated}>not rated</Text>
   return (
-    <View style={{ flexDirection: 'row', gap: 2 }}>
+    <View style={starRowStyle}>
       {[1, 2, 3, 4, 5].map((s) => (
         <Text key={s} style={{ fontSize: 11, opacity: s <= value ? 1 : 0.18 }}>⭐</Text>
       ))}
     </View>
   )
+})
+const starRowStyle = { flexDirection: 'row' as const, gap: 2 }
+
+// ---------------------------------------------------------------------------
+// ExpandableDescription
+//
+// expanded/onToggle are props — the parent screen owns the state.
+// FlashList view recycling can never silently reset an open card.
+// ---------------------------------------------------------------------------
+type ExpandableDescriptionProps = {
+  text: string
+  expanded: boolean
+  onToggle: () => void
 }
 
+const ExpandableDescription = React.memo(function ExpandableDescription({
+  text,
+  expanded,
+  onToggle,
+}: ExpandableDescriptionProps) {
+  return (
+    <>
+      <Text style={styles.shortDesc} numberOfLines={expanded ? undefined : 2}>
+        {text}
+      </Text>
+      <TouchableOpacity onPress={(e) => { e.stopPropagation(); onToggle() }} activeOpacity={0.7} hitSlop={HIT_SLOP}>
+        <Text style={styles.seeMoreTxt}>
+          {expanded ? '▲ Show less' : '▼ Show more'}
+        </Text>
+      </TouchableOpacity>
+    </>
+  )
+})
+const HIT_SLOP = { top: 6, bottom: 6, left: 6, right: 6 }
+
+// ---------------------------------------------------------------------------
+// Visited card
+// ---------------------------------------------------------------------------
+type VisitedCardProps = {
+  site: TourismSite
+  review: ReviewRecord | null
+  descExpanded: boolean
+  onToggleDesc: (siteId: string) => void
+  onDirections: (siteId: string) => void
+  onPress: (site: TourismSite) => void
+}
+
+const VisitedCard = React.memo(function VisitedCard({
+  site,
+  review,
+  descExpanded,
+  onToggleDesc,
+  onDirections,
+  onPress,
+}: VisitedCardProps) {
+  const handleDirections = useCallback(
+    () => onDirections(site.id),
+    [onDirections, site.id],
+  )
+  const handlePress = useCallback(
+    () => onPress(site),
+    [onPress, site],
+  )
+  const handleToggleDesc = useCallback(
+    () => onToggleDesc(site.id),
+    [onToggleDesc, site.id],
+  )
+
+  return (
+    <TouchableOpacity style={styles.card} onPress={handlePress} activeOpacity={0.85}>
+      {site.imageUrl ? (
+        <Image
+          source={{ uri: site.imageUrl }}
+          style={styles.cardImage}
+          resizeMode="cover"
+          fadeDuration={0}
+        />
+      ) : (
+        <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+          <Text style={{ fontSize: 32, opacity: 0.3 }}>🏔️</Text>
+        </View>
+      )}
+
+      <View style={styles.cardBody}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardName} numberOfLines={1}>{site.name}</Text>
+          <View style={styles.visitedPill}>
+            <Text style={styles.visitedPillTxt}>✓ Visited</Text>
+          </View>
+        </View>
+
+        {(site.barangay || site.municipality) ? (
+          <Text style={styles.siteLocation}>
+            📍 {[site.barangay, site.municipality].filter(Boolean).join(', ')}
+          </Text>
+        ) : null}
+
+        {review?.visited_at && (
+          <Text style={styles.visitDate}>
+            📅 {new Date(review.visited_at).toLocaleDateString('en-PH', {
+              year: 'numeric', month: 'short', day: 'numeric',
+            })}
+          </Text>
+        )}
+
+        {site.description ? (
+          <ExpandableDescription
+            text={site.description}
+            expanded={descExpanded}
+            onToggle={handleToggleDesc}
+          />
+        ) : null}
+
+        {review ? (
+          <View style={styles.ratingsGrid}>
+            {CRITERIA.map((c) => (
+              <View key={c.dbKey} style={styles.ratingRow}>
+                <Text style={styles.ratingEmoji}>{c.emoji}</Text>
+                <Text style={styles.ratingLabel}>{c.label}</Text>
+                <StarRow value={review[c.dbKey] as number | null} />
+              </View>
+            ))}
+            {review.comment ? (
+              <Text style={styles.comment}>💬 "{review.comment}"</Text>
+            ) : null}
+          </View>
+        ) : (
+          <View style={styles.noReviewBox}>
+            <Text style={styles.noReviewTxt}>You haven't rated this site yet.</Text>
+          </View>
+        )}
+
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={styles.directionsBtn}
+            onPress={handleDirections}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.directionsBtnTxt}>Directions</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Unvisited card
+// ---------------------------------------------------------------------------
+type UnvisitedCardProps = {
+  site: TourismSite
+  descExpanded: boolean
+  onToggleDesc: (siteId: string) => void
+  onDirections: (siteId: string) => void
+  onPress: (site: TourismSite) => void
+}
+
+const UnvisitedCard = React.memo(function UnvisitedCard({
+  site,
+  descExpanded,
+  onToggleDesc,
+  onDirections,
+  onPress,
+}: UnvisitedCardProps) {
+  const handleDirections = useCallback(
+    () => onDirections(site.id),
+    [onDirections, site.id],
+  )
+  const handlePress = useCallback(
+    () => onPress(site),
+    [onPress, site],
+  )
+  const handleToggleDesc = useCallback(
+    () => onToggleDesc(site.id),
+    [onToggleDesc, site.id],
+  )
+
+  return (
+    <TouchableOpacity style={styles.card} onPress={handlePress} activeOpacity={0.85}>
+      {site.imageUrl ? (
+        <Image
+          source={{ uri: site.imageUrl }}
+          style={styles.cardImage}
+          resizeMode="cover"
+          fadeDuration={0}
+        />
+      ) : (
+        <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+          <Text style={{ fontSize: 32, opacity: 0.3 }}>🏔️</Text>
+        </View>
+      )}
+
+      <View style={styles.cardBody}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardName} numberOfLines={1}>{site.name}</Text>
+          <View style={styles.unvisitedPill}>
+            <Text style={styles.unvisitedPillTxt}>Not visited</Text>
+          </View>
+        </View>
+
+        {(site.barangay || site.municipality) ? (
+          <Text style={styles.siteLocation}>
+            📍 {[site.barangay, site.municipality].filter(Boolean).join(', ')}
+          </Text>
+        ) : null}
+
+        {(site.shortDescription || site.description) ? (
+          <ExpandableDescription
+            text={site.shortDescription || site.description || ""}
+            expanded={descExpanded}
+            onToggle={handleToggleDesc}
+          />
+        ) : null}
+
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={styles.directionsBtn}
+            onPress={handleDirections}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.directionsBtnTxt}>Directions</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
+  )
+})
+
+// ---------------------------------------------------------------------------
+// ListFooter — stats shown at bottom of visited list
+// ---------------------------------------------------------------------------
+type FooterProps = { visitedCount: number; totalCount: number; reviewCount: number }
+const ListFooter = React.memo(function ListFooter({
+  visitedCount,
+  totalCount,
+  reviewCount,
+}: FooterProps) {
+  return (
+    <View style={styles.statsBox}>
+      <Text style={styles.statsTitle}>Your Trail Summary</Text>
+      <Text style={styles.statLine}>Sites visited: {visitedCount} / {totalCount}</Text>
+      <Text style={styles.statLine}>Sites reviewed: {reviewCount}</Text>
+      <Text style={styles.statLine}>
+        Your contributions help shape recommendations for all tourists in Albay.
+      </Text>
+    </View>
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
 export default function HistoryScreen() {
   const { session } = useAuthStore()
   const { unlockedSiteIds, setPendingDirectionsSiteId } = useMapStore()
   const userId = session?.user?.id ?? ''
 
-  const [reviews,  setReviews]  = useState<ReviewRecord[]>([])
-  const [sites,    setSites]    = useState<Record<string, TourismSite>>({})
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState<string | null>(null)
+  const [activeTab,  setActiveTab]  = useState<Tab>('unvisited')
+  const [reviews,    setReviews]    = useState<ReviewRecord[]>([])
+  const [allSites,   setAllSites]   = useState<TourismSite[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState<string | null>(null)
+
+  // Expand state as a proper useState Set — each toggle creates a new Set
+  // instance so React.memo sees a genuinely changed prop and re-renders the
+  // affected card. The useRef+tick approach looked correct but memo's shallow
+  // comparison saw the same boolean value and bailed out silently.
+  const [expandedDescIds, setExpandedDescIds] = useState<Set<string>>(new Set())
+
+  const handleToggleDesc = useCallback((siteId: string) => {
+    setExpandedDescIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(siteId)) next.delete(siteId)
+      else next.add(siteId)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
-    if (!userId) { setLoading(false); return }
+    const fetches: Promise<any>[] = [fetchDestinations()]
+    if (userId) fetches.push(fetchUserReviews(userId))
 
-    Promise.all([
-      fetchUserReviews(userId),
-      fetchDestinations(),
-    ])
-      .then(([userReviews, allSites]) => {
-        setReviews(userReviews)
-        const map: Record<string, TourismSite> = {}
-        allSites.forEach((s) => { map[s.id] = s })
-        setSites(map)
+    Promise.all(fetches)
+      .then(([destinations, userReviews]) => {
+        setAllSites(destinations)
+        if (userReviews) setReviews(userReviews)
       })
-      .catch((e) => setError(e?.message ?? 'Failed to load history.'))
+      .catch((e) => setError(e?.message ?? 'Failed to load destinations.'))
       .finally(() => setLoading(false))
   }, [userId])
 
-  // Merge: all unlocked sites, whether reviewed or not
-  const unlockedIds = Array.from(unlockedSiteIds)
-  const reviewMap: Record<string, ReviewRecord> = {}
-  reviews.forEach((r) => { reviewMap[r.site_id] = r })
+  // ── Memoized derived state ───────────────────────────────────────────────
+  const reviewMap = useMemo<Record<string, ReviewRecord>>(() => {
+    const map: Record<string, ReviewRecord> = {}
+    reviews.forEach((r) => { map[r.site_id] = r })
+    return map
+  }, [reviews])
 
-  const visitedEntries = unlockedIds
-    .map((id) => ({ site: sites[id], review: reviewMap[id] ?? null }))
-    .filter((e) => !!e.site)
+  const visitedSites = useMemo(
+    () => allSites.filter((s) =>  unlockedSiteIds.has(s.id)),
+    [allSites, unlockedSiteIds],
+  )
+  const unvisitedSites = useMemo(
+    () => allSites.filter((s) => !unlockedSiteIds.has(s.id)),
+    [allSites, unlockedSiteIds],
+  )
+
+  // ── Stable callbacks ─────────────────────────────────────────────────────
+  const goDirections = useCallback((siteId: string) => {
+    setPendingDirectionsSiteId(siteId)
+    // router.back() resumes the already-mounted map tab with live location.
+    // Falls back to replace() on cold-start deep links where back stack is empty.
+    if (router.canGoBack()) {
+      router.back()
+    } else {
+      router.replace('/(tabs)/')
+    }
+  }, [setPendingDirectionsSiteId])
+
+  const handleSitePress = useCallback((site: TourismSite) => {
+    // Push the detail screen on top of the history tab's stack. router.back()
+    // inside [id].tsx will pop back here correctly.
+    router.push(`/site/${site.id}?from=history`)
+  }, [])
+
+  // ── FlashList render functions ───────────────────────────────────────────
+  // expandedDescIds is in the dep array — a new Set on each toggle causes
+  // renderItem to recreate and memo to see a changed descExpanded prop.
+  const renderUnvisited = useCallback(({ item }: { item: TourismSite }) => (
+    <UnvisitedCard
+      site={item}
+      descExpanded={expandedDescIds.has(item.id)}
+      onToggleDesc={handleToggleDesc}
+      onDirections={goDirections}
+      onPress={handleSitePress}
+    />
+  ), [expandedDescIds, goDirections, handleSitePress, handleToggleDesc])
+
+  const renderVisited = useCallback(({ item }: { item: TourismSite }) => (
+    <VisitedCard
+      site={item}
+      review={reviewMap[item.id] ?? null}
+      descExpanded={expandedDescIds.has(item.id)}
+      onToggleDesc={handleToggleDesc}
+      onDirections={goDirections}
+      onPress={handleSitePress}
+    />
+  ), [expandedDescIds, reviewMap, goDirections, handleSitePress, handleToggleDesc])
+
+  const keyExtractor = useCallback((item: TourismSite) => item.id, [])
+
+  const visitedFooter = useMemo(() => (
+    <ListFooter
+      visitedCount={visitedSites.length}
+      totalCount={allSites.length}
+      reviewCount={reviews.length}
+    />
+  ), [visitedSites.length, allSites.length, reviews.length])
+
+  const listData   = activeTab === 'unvisited' ? unvisitedSites : visitedSites
+  const renderItem = activeTab === 'unvisited' ? renderUnvisited : renderVisited
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.75}>
+        {/* Use router.back() to resume the map tab without remounting it —
+            same pattern as recommend.tsx. Falls back to replace() if there's
+            nothing in the stack (e.g. deep-link cold start). */}
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)/')}
+          activeOpacity={0.75}
+        >
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>My Exploration Trail</Text>
           <Text style={styles.headerSub}>
-            {visitedEntries.length} site{visitedEntries.length !== 1 ? 's' : ''} visited
+            {visitedSites.length} of {allSites.length} site{allSites.length !== 1 ? 's' : ''} visited
           </Text>
         </View>
       </View>
+
+      {/* Toggle — rendered regardless of content so it stays visible */}
+      {!loading && !error && (
+        <View style={styles.toggleWrap}>
+          <View style={styles.toggle}>
+            <TouchableOpacity
+              style={[styles.toggleBtn, activeTab === 'unvisited' && styles.toggleBtnActive]}
+              onPress={() => setActiveTab('unvisited')}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.toggleBtnTxt, activeTab === 'unvisited' && styles.toggleBtnTxtActive]}>
+                Unvisited
+              </Text>
+              <View style={[styles.toggleCount, activeTab === 'unvisited' && styles.toggleCountActive]}>
+                <Text style={[styles.toggleCountTxt, activeTab === 'unvisited' && styles.toggleCountTxtActive]}>
+                  {unvisitedSites.length}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.toggleBtn, activeTab === 'visited' && styles.toggleBtnActive]}
+              onPress={() => setActiveTab('visited')}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.toggleBtnTxt, activeTab === 'visited' && styles.toggleBtnTxtActive]}>
+                Visited
+              </Text>
+              <View style={[styles.toggleCount, activeTab === 'visited' && styles.toggleCountActive]}>
+                <Text style={[styles.toggleCountTxt, activeTab === 'visited' && styles.toggleCountTxtActive]}>
+                  {visitedSites.length}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.centred}>
@@ -106,114 +489,41 @@ export default function HistoryScreen() {
         <View style={styles.centred}>
           <Text style={styles.errorTxt}>{error}</Text>
         </View>
-      ) : visitedEntries.length === 0 ? (
+      ) : activeTab === 'unvisited' && unvisitedSites.length === 0 ? (
         <View style={styles.centred}>
-          <Text style={styles.emptyEmoji}>🗺️</Text>
+          <Text style={styles.emptyEmoji}>🎉</Text>
+          <Text style={styles.emptyTitle}>All sites visited!</Text>
+          <Text style={styles.emptySub}>
+            You've visited every destination in Albay. Impressive!
+          </Text>
+        </View>
+      ) : activeTab === 'visited' && visitedSites.length === 0 ? (
+        <View style={styles.centred}>
+          <Text style={styles.emptyEmoji}>🥾</Text>
           <Text style={styles.emptyTitle}>No sites visited yet</Text>
           <Text style={styles.emptySub}>
             Explore Albay destinations to build your personal trail.
           </Text>
           <TouchableOpacity
             style={styles.exploreBtn}
-            onPress={() => router.push('/(tabs)/')}
+            onPress={() => router.navigate('/(tabs)/')}
             activeOpacity={0.8}
           >
             <Text style={styles.exploreBtnTxt}>Open Map</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={styles.list}
+        <FlashList<TourismSite>
+          data={listData}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          estimatedItemSize={300}
+          contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-        >
-          {visitedEntries.map(({ site, review }) => {
-            const ratedCount = review
-              ? CRITERIA.filter((c) => review[c.dbKey] !== null).length
-              : 0
-
-            return (
-              <View key={site.id} style={styles.card}>
-                {/* Site image */}
-                {site.imageUrl ? (
-                  <Image
-                    source={{ uri: site.imageUrl }}
-                    style={styles.cardImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
-                    <Text style={{ fontSize: 32, opacity: 0.3 }}>🏔️</Text>
-                  </View>
-                )}
-
-                <View style={styles.cardBody}>
-                  {/* Name + unlock badge */}
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.cardName} numberOfLines={1}>{site.name}</Text>
-                    <View style={styles.unlockedPill}>
-                      <Text style={styles.unlockedPillTxt}>Visited</Text>
-                    </View>
-                  </View>
-
-                  {/* Visit date */}
-                  {review?.visited_at && (
-                    <Text style={styles.visitDate}>
-                      📅 {new Date(review.visited_at).toLocaleDateString('en-PH', {
-                        year: 'numeric', month: 'short', day: 'numeric',
-                      })}
-                    </Text>
-                  )}
-
-                  {/* Per-criterion ratings */}
-                  {review ? (
-                    <View style={styles.ratingsGrid}>
-                      {CRITERIA.map((c) => (
-                        <View key={c.dbKey} style={styles.ratingRow}>
-                          <Text style={styles.ratingEmoji}>{c.emoji}</Text>
-                          <Text style={styles.ratingLabel}>{c.label}</Text>
-                          <StarRow value={review[c.dbKey] as number | null} />
-                        </View>
-                      ))}
-                      {review.comment ? (
-                        <Text style={styles.comment}>💬 "{review.comment}"</Text>
-                      ) : null}
-                    </View>
-                  ) : (
-                    <View style={styles.noReviewBox}>
-                      <Text style={styles.noReviewTxt}>You haven't rated this site yet.</Text>
-                    </View>
-                  )}
-
-                  {/* Actions */}
-                  <View style={styles.cardActions}>
-                    <TouchableOpacity
-                      style={styles.directionsBtn}
-                      onPress={() => {
-                        setPendingDirectionsSiteId(site.id)
-                        router.push('/(tabs)/')
-                      }}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.directionsBtnTxt}>Directions</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            )
-          })}
-
-          {/* Summary stats */}
-          <View style={styles.statsBox}>
-            <Text style={styles.statsTitle}>Your Trail Summary</Text>
-            <Text style={styles.statLine}>Sites visited: {visitedEntries.length}</Text>
-            <Text style={styles.statLine}>Sites reviewed: {reviews.length}</Text>
-            <Text style={styles.statLine}>
-              Your contributions help shape recommendations for all tourists in Albay.
-            </Text>
-          </View>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+          ListFooterComponent={activeTab === 'visited' ? visitedFooter : null}
+          overScrollMode="never"
+          // removeClippedSubviews — removed: clips dynamic height changes when cards expand
+        />
       )}
     </SafeAreaView>
   )
@@ -248,6 +558,68 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: Typography.displayFont, fontSize: 20, color: Colors.textPrimary, letterSpacing: -0.4 },
   headerSub: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted, marginTop: 1 },
 
+  // ── Toggle ──
+  toggleWrap: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.bgCard,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  toggle: {
+    flexDirection: 'row',
+    backgroundColor: Colors.bg,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 3,
+    gap: 3,
+  },
+  toggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: Radius.md,
+  },
+  toggleBtnActive: {
+    backgroundColor: Colors.primary,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  toggleBtnTxt: {
+    fontFamily: Typography.bodyMedium,
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  toggleBtnTxtActive: {
+    color: Colors.textInverse,
+  },
+  toggleCount: {
+    backgroundColor: Colors.border,
+    borderRadius: Radius.full,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    minWidth: 22,
+    alignItems: 'center',
+  },
+  toggleCountActive: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  toggleCountTxt: {
+    fontFamily: Typography.bodySemiBold,
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  toggleCountTxtActive: {
+    color: Colors.textInverse,
+  },
+
   centred: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl, gap: Spacing.md },
   errorTxt: { fontFamily: Typography.bodyFont, fontSize: 14, color: Colors.error, textAlign: 'center' },
   emptyEmoji: { fontSize: 48 },
@@ -262,28 +634,41 @@ const styles = StyleSheet.create({
   },
   exploreBtnTxt: { fontFamily: Typography.bodySemiBold, fontSize: 14, color: Colors.textInverse },
 
-  list: { padding: Spacing.lg, gap: Spacing.md },
+  listContent: { padding: Spacing.lg, gap: Spacing.md },
 
+  // ── Shared card ──
   card: {
     backgroundColor: Colors.bgCard,
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.border,
     overflow: 'hidden',
+    marginBottom: Spacing.md,
   },
   cardImage: { width: '100%', height: 110 },
   cardImagePlaceholder: { backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
   cardBody: { padding: Spacing.md, gap: Spacing.sm },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   cardName: { fontFamily: Typography.bodySemiBold, fontSize: 16, color: Colors.textPrimary, flex: 1 },
-  unlockedPill: {
+
+  siteLocation: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted },
+  shortDesc: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted, lineHeight: 17 },
+  seeMoreTxt: { fontFamily: Typography.bodyMedium, fontSize: 12, color: Colors.primary, marginTop: 2 },
+  visitDate: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted },
+
+  // ── Status pills ──
+  visitedPill: {
     backgroundColor: '#1A7A4A18', borderRadius: Radius.full,
     paddingHorizontal: 8, paddingVertical: 3,
   },
-  unlockedPillTxt: { fontFamily: Typography.bodyMedium, fontSize: 11, color: '#1A7A4A' },
+  visitedPillTxt: { fontFamily: Typography.bodyMedium, fontSize: 11, color: '#1A7A4A' },
+  unvisitedPill: {
+    backgroundColor: Colors.border, borderRadius: Radius.full,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  unvisitedPillTxt: { fontFamily: Typography.bodyMedium, fontSize: 11, color: Colors.textMuted },
 
-  visitDate: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted },
-
+  // ── Ratings ──
   ratingsGrid: { gap: 4, backgroundColor: Colors.bg, borderRadius: Radius.md, padding: Spacing.sm },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   ratingEmoji: { fontSize: 12, width: 18 },
@@ -294,7 +679,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary, fontStyle: 'italic',
     lineHeight: 17, marginTop: 4,
   },
-
   noReviewBox: {
     backgroundColor: Colors.bg, borderRadius: Radius.md,
     padding: Spacing.sm, borderWidth: 1,
@@ -302,6 +686,7 @@ const styles = StyleSheet.create({
   },
   noReviewTxt: { fontFamily: Typography.bodyFont, fontSize: 12, color: Colors.textMuted },
 
+  // ── Actions ──
   cardActions: { flexDirection: 'row', gap: 8 },
   directionsBtn: {
     paddingVertical: 6, paddingHorizontal: 12,
@@ -311,6 +696,7 @@ const styles = StyleSheet.create({
   },
   directionsBtnTxt: { fontFamily: Typography.bodyMedium, fontSize: 12, color: Colors.primary },
 
+  // ── Summary stats ──
   statsBox: {
     backgroundColor: Colors.bgCard,
     borderRadius: Radius.lg,

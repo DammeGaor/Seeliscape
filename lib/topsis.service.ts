@@ -1,7 +1,5 @@
 // ---------------------------------------------------------------------------
-// topsis.service.ts
-// Technique for Order of Preference by Similarity to Ideal Solution (TOPSIS)
-// Adapted for Seeliscape — incorporates 6A's of Tourism + geographic proximity
+// Technique for Order of Preference by Similarity to Ideal Solution (TOPSIS) Calculations
 // ---------------------------------------------------------------------------
 
 export interface SixAs {

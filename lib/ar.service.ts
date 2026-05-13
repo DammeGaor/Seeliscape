@@ -10,6 +10,7 @@ type ARObjectRow = {
   name: string
   description: string | null
   model_url: string
+  image_url: string | null
   scale: number
   offset_x: number
   offset_y: number
@@ -24,24 +25,29 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
 const AR_BUCKET_BASE = `${SUPABASE_URL}/storage/v1/object/public/ar-models/`
 
 // ---------------------------------------------------------------------------
+// Resolves a filename-or-full-URL against the ar-models bucket base
+// ---------------------------------------------------------------------------
+function resolveUrl(value: string | null): string | undefined {
+  if (!value) return undefined
+  return value.startsWith('http') ? value : `${AR_BUCKET_BASE}${value}`
+}
+
+// ---------------------------------------------------------------------------
 // Maps a flat Supabase row → ARObject
 // ---------------------------------------------------------------------------
 function mapToARObject(row: ARObjectRow): ARObject {
   return {
-    id:          row.id,
-    landmarkId:  row.landmark_id,
-    name:        row.name,
-    description: row.description,
-    // model_url stored as just the filename, e.g. "cagsawa.glb"
-    // If it's already a full URL, use as-is
-    modelUrl: row.model_url.startsWith('http')
-      ? row.model_url
-      : `${AR_BUCKET_BASE}${row.model_url}`,
-    scale:    row.scale,
-    offset_x: row.offset_x ?? 0,
-    offset_y: row.offset_y ?? 1.5,
-    offset_z: row.offset_z ?? -3,
-    isActive: row.is_active,
+    id:            row.id,
+    landmarkId:    row.landmark_id,
+    name:          row.name,
+    description:   row.description,
+    modelUrl:      resolveUrl(row.model_url)!,
+    imageUrl:      resolveUrl(row.image_url),
+    scale:         row.scale,
+    offset_x:      row.offset_x ?? 0,
+    offset_y:      row.offset_y ?? 1.5,
+    offset_z:      row.offset_z ?? -3,
+    isActive:      row.is_active,
   }
 }
 
@@ -51,7 +57,19 @@ function mapToARObject(row: ARObjectRow): ARObject {
 export async function fetchARObjects(landmarkId: number): Promise<ARObject[]> {
   const { data, error } = await supabase
     .from('ar_objects')
-    .select('id, landmark_id, name, description, model_url, scale, offset_x, offset_y, offset_z, is_active')
+    .select(`
+      id,
+      landmark_id,
+      name,
+      description,
+      model_url,
+      image_url,
+      scale,
+      offset_x,
+      offset_y,
+      offset_z,
+      is_active
+    `)
     .eq('landmark_id', landmarkId)
     .eq('is_active', true)
 
